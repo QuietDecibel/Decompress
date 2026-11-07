@@ -5,7 +5,8 @@ over plain HTTP/JSON, and the dashboard at http://HOST:PORT/ shows a live
 progress bar per project, per phase, and an activity feed.
 
 Run:
-    python hub/server.py                 # http://127.0.0.1:8765
+    decompress-hub                       # after `pip install .`  -> http://127.0.0.1:8765
+    python hub/server.py                 # straight from the repo
     HUB_HOST=0.0.0.0 HUB_PORT=8765 HUB_TOKEN=secret python hub/server.py
 
 API (JSON):
@@ -32,7 +33,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 STATIC = HERE / "static"
-DATA_FILE = Path(os.environ.get("HUB_DATA", HERE / "data" / "hub.json"))
+DATA_FILE = Path(os.environ.get("HUB_DATA", Path.home() / ".claude-progress-hub" / "hub.json"))
 TOKEN = os.environ.get("HUB_TOKEN", "")
 STATUSES = ("todo", "in_progress", "blocked", "done")
 MAX_EVENTS = 200

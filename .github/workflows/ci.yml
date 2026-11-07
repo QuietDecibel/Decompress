@@ -1,0 +1,34 @@
+name: build-test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  rebuild:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.11", "3.12"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # Full cycle: clean -> setup -> test -> build -> install wheel in a clean venv -> smoke test.
+      # MediaPipe is skipped in CI (tests use a fake pose backend); install it locally with the default extras.
+      - name: Rebuild (Linux)
+        if: runner.os != 'Windows'
+        run: EXTRAS=dev PYTHON=python ./scripts/build.sh rebuild
+      - name: Rebuild (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .\scripts\build.ps1 rebuild -Extras dev -Python python
+      - uses: actions/upload-artifact@v4
+        if: matrix.os == 'windows-latest' && matrix.python == '3.12'
+        with:
+          name: decompress-dist
+          path: dist/

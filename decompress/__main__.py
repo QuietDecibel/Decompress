@@ -5,6 +5,8 @@
   analyze    analyse a video file -> annotated mp4 + .motion.json        video [--out DIR]
   train      train the movement classifier from labelled clips          labels.json
   backends   show available vision backends
+  hub        run the Claude Progress Hub dashboard                      --host 127.0.0.1 --port 8765
+  blender-addon   write the Blender add-on zip                          [--out dist/decompress_blender_addon.zip]
 """
 from __future__ import annotations
 
@@ -16,6 +18,8 @@ from pathlib import Path
 
 def main(argv=None) -> None:
     ap = argparse.ArgumentParser(prog="decompress", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    from . import __version__
+    ap.add_argument("--version", action="version", version=f"decompress {__version__}")
     ap.add_argument("--backend", help="mediapipe | yolo | yolo-det | hog (default: best available)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("serve"); s.add_argument("--host", default="127.0.0.1"); s.add_argument("--port", type=int, default=8000)
@@ -25,6 +29,8 @@ def main(argv=None) -> None:
     a.add_argument("--no-video", action="store_true")
     t = sub.add_parser("train"); t.add_argument("labels"); t.add_argument("--out", default="decompress_data/models/movement.json")
     sub.add_parser("backends")
+    h = sub.add_parser("hub"); h.add_argument("--host", default="127.0.0.1"); h.add_argument("--port", type=int, default=8765)
+    b = sub.add_parser("blender-addon"); b.add_argument("--out", default="dist/decompress_blender_addon.zip")
     args = ap.parse_args(argv)
 
     if args.cmd == "serve":
@@ -55,9 +61,31 @@ def main(argv=None) -> None:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         clf.save(args.out)
         print(f"trained on {n} clips, labels={sorted(set(clf.y))} -> {args.out}")
+    elif args.cmd == "hub":
+        import os
+        os.environ["HUB_HOST"], os.environ["HUB_PORT"] = args.host, str(args.port)
+        try:
+            from progress_hub import server
+        except ImportError:                     # running from a source checkout without install
+            sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+            from hub import server
+        server.main()
+    elif args.cmd == "blender-addon":
+        print(build_blender_addon(args.out))
     elif args.cmd == "backends":
         from .vision import available_backends
         print(", ".join(available_backends()))
+
+
+def build_blender_addon(out: str | Path) -> Path:
+    """Zip the importer as a Blender add-on (folder decompress_motion/ with __init__.py)."""
+    import zipfile
+    src = Path(__file__).resolve().parent / "blender" / "import_motion.py"
+    out = Path(out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+        z.write(src, "decompress_motion/__init__.py")
+    return out
 
 
 if __name__ == "__main__":

@@ -4,11 +4,11 @@ A dependency-free (Python stdlib) dashboard that any project, or any Claude Code
 plan and progress to. It shows a live progress bar per project and per phase, task lists, and an activity feed.
 
 ```bash
-python hub/server.py                                   # http://127.0.0.1:8765
+decompress-hub                                         # http://127.0.0.1:8765  (or: python hub/server.py)
 ```
 
 ```bash
-HUB_HOST=0.0.0.0 HUB_TOKEN=change-me python hub/server.py   # share on your network, writes need the token
+HUB_HOST=0.0.0.0 HUB_TOKEN=change-me decompress-hub   # share on your network, writes need the token
 ```
 
 ## Connect another project

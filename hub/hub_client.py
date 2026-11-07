@@ -76,6 +76,7 @@ def show() -> None:
 
 
 def main(argv=None) -> None:
+    argv = sys.argv[1:] if argv is None else argv
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("sync"); s.add_argument("plan")
@@ -97,4 +98,4 @@ def main(argv=None) -> None:
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    main()

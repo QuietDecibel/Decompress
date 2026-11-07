@@ -13,41 +13,82 @@ other Claude project can report progress to.
 | Multi-view | Grid of 1×1 to 4×4 tiles: RTSP, HTTP/MJPEG, webcams, imported files. Each tile shows live skeletons, track IDs, trails and movement labels. Credentials are redacted in the UI/API. |
 | Queue | Drag & drop videos into a persistent queue (reorder, cancel, resume after restart). Each job writes an annotated `.mp4` and a `.motion.json`. |
 | Vision | Backends: **MediaPipe** (2D + metric 3D, multi-person), **YOLO-pose**, **YOLO-det** (people + animals as boxes), **HOG** fallback. A multi-person tracker gives stable IDs. Movement labels: walking / running / crouching / standing / arms raised. |
-| Training | Label clips → `python -m decompress train labels.json` → the k-NN movement classifier is used live in every tile. |
-| Blender | `blender/import_motion.py` builds keyframed joint empties + a 14-bone armature (Copy Location / Stretch To), with optional bake to plain keyframes. Tested with bpy 5.2. |
+| Training | Label clips → `decompress train labels.json` → the k-NN movement classifier is used live in every tile. |
+| Blender | A Blender add-on (`dist/decompress_blender_addon.zip`) builds keyframed joint empties + a 14-bone armature (Copy Location / Stretch To), with optional bake to plain keyframes. Tested with bpy 5.2. |
 
 Full roadmap with status: [PLAN.md](PLAN.md).
 
-## Quick start
+## Install, build, test, rebuild
+
+Everything is driven by one script: `build.cmd` / `scripts\build.ps1` on Windows, `scripts/build.sh` on Linux and macOS.
+Python 3.10–3.12 is recommended (MediaPipe's supported range).
+
+**Windows** (in `C:\GitHub\Decompress`, from cmd or PowerShell):
 
 ```bash
-pip install -r requirements.txt
+build rebuild
 ```
 
+**Linux / macOS:**
+
 ```bash
-python -m decompress serve            # open http://127.0.0.1:8000
+./scripts/build.sh rebuild
 ```
+
+`rebuild` runs the full cycle: **clean → setup → test → build → verify**. You can also run each step on its own:
+
+| Command | What it does |
+|---|---|
+| `setup` | Creates `.venv` and installs the app in editable mode, plus MediaPipe and the dev tools |
+| `test` | Runs the unit tests |
+| `build` | Writes `dist/decompress-<ver>-py3-none-any.whl`, the sdist, and `dist/decompress_blender_addon.zip` |
+| `verify` | Installs the wheel into a fresh venv and smoke-tests the commands, web UI, hub and Blender add-on |
+| `rebuild` | All of the above, starting from `clean` |
+| `clean` | Deletes `build/`, `dist/` and caches (keeps `.venv` and your data) |
+| `run` / `hub` | Starts the app (http://127.0.0.1:8000) or the Progress Hub (http://127.0.0.1:8765) |
+
+Change the optional extras with `-Extras all,dev` (Windows) or `EXTRAS=all,dev` (Linux). `all` adds YOLO.
+On Windows, if PowerShell blocks the script, use `build.cmd` (it bypasses the policy for that run only), or run
+`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once.
+
+**Install the built package on another machine:**
+
+```bash
+pip install "decompress-0.1.0-py3-none-any.whl[mediapipe]"
+```
+
+That provides three commands:
+
+| Command | Purpose |
+|---|---|
+| `decompress serve` | The app (also `discover`, `analyze`, `train`, `backends`, `hub`, `blender-addon`) |
+| `decompress-hub` | The Progress Hub dashboard |
+| `decompress-hub-client` | Report progress to the hub (`sync`, `task`, `log`, `show`) |
 
 MediaPipe downloads its pose model (~9 MB) on first use. On headless Linux it also needs `libegl1` and `libgles2`.
+CI (`.github/workflows/ci.yml`) runs `rebuild` on Windows and Linux with Python 3.11 and 3.12 on every push, and
+uploads `dist/` as a build artifact.
 
-Other commands:
+Examples:
 
 ```bash
-python -m decompress discover --subnet 192.168.1.0/24
+decompress discover --subnet 192.168.1.0/24
 ```
 
 ```bash
-python -m decompress --backend mediapipe analyze my_clip.mp4      # writes to decompress_data/outputs/
-```
-
-```bash
-python -m decompress train labels.json
+decompress --backend mediapipe analyze my_clip.mp4      # writes to decompress_data/outputs/
 ```
 
 ## Blender
 
+**As an add-on (recommended):** in Blender, go to Edit → Preferences → Add-ons → Install from Disk, and choose
+`dist/decompress_blender_addon.zip`. Then use File → Import → **Decompress Motion (.motion.json)**. It offers
+options for the track ID (0 imports everyone), the smoothing window, and baking to keyframes.
+
+**From a terminal:**
+
 ```bash
-blender --python blender/import_motion.py -- decompress_data/outputs/<job>-clip.motion.json --bake
+blender --python decompress/blender/import_motion.py -- decompress_data/outputs/<job>-clip.motion.json --bake
 ```
 
 Options: `--track N` imports one person, `--smooth 5` sets the smoothing window (frames), `--bake` bakes the motion to keyframes.
@@ -61,27 +102,29 @@ Use the MediaPipe backend for true 3D. With 2D-only backends the motion is place
    [{"motion": "decompress_data/outputs/ab12-clip.motion.json", "track": 1, "start": 0, "end": 90, "label": "waving"},
     {"motion": "decompress_data/outputs/ab12-clip.motion.json", "track": 1, "start": 120, "end": 200, "label": "jumping"}]
    ```
-3. `python -m decompress train labels.json`. New tiles use it automatically, and `POST /api/classifier/reload` updates running tiles.
+3. `decompress train labels.json`. New tiles use it automatically, and `POST /api/classifier/reload` updates running tiles.
 
 ## Claude Progress Hub
 
 ```bash
-python hub/server.py                          # dashboard at http://127.0.0.1:8765
+decompress-hub                                          # dashboard at http://127.0.0.1:8765
 ```
 
 ```bash
-python hub/hub_client.py sync plan.json       # push this project's plan
+decompress-hub-client sync plan.json                    # push this project's plan
 ```
 
 ```bash
-python hub/hub_client.py task decompress P1.4 in_progress --note "GetStreamUri"
+decompress-hub-client task decompress P1.4 in_progress --note "GetStreamUri"
 ```
 
 ```bash
-python hub/hub_client.py show                 # progress bars in the terminal
+decompress-hub-client show                              # progress bars in the terminal
 ```
 
-See [hub/README.md](hub/README.md) for connecting other Claude projects.
+After changing `plan.json`, run `python scripts/render_plan.py` to refresh PLAN.md. Hub data is stored in
+`~/.claude-progress-hub/hub.json` (override with `HUB_DATA`). See [hub/README.md](hub/README.md) for connecting
+other Claude projects.
 
 ## Responsible use
 
@@ -91,6 +134,4 @@ localhost by default.
 
 ## Tests
 
-```bash
-pip install -r requirements-dev.txt && python -m pytest -q
-```
+Run `build test` (Windows) or `./scripts/build.sh test`. The `verify` step also smoke-tests the installed wheel.

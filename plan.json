@@ -260,7 +260,7 @@
       "phase": "P6",
       "title": "Blender importer: armature + baked animation",
       "status": "done",
-      "note": "verified with bpy 5.2"
+      "note": "also installs as a Blender add-on (File > Import); verified with bpy 5.2"
     },
     {
       "id": "P6.3",
@@ -295,7 +295,7 @@
       "phase": "P7",
       "title": "Automated test suite",
       "status": "done",
-      "note": "23 tests"
+      "note": "23 unit tests + wheel smoke test"
     },
     {
       "id": "P7.2",
@@ -307,14 +307,35 @@
     {
       "id": "P7.3",
       "phase": "P7",
-      "title": "Packaging (Docker / desktop installer)",
-      "status": "todo",
-      "note": ""
+      "title": "Install package: wheel, build/test/rebuild scripts (Windows + Linux), Blender add-on",
+      "status": "done",
+      "note": "wheel smoke-tested in a clean venv; add-on tested in bpy 5.2"
     },
     {
       "id": "P7.4",
       "phase": "P7",
       "title": "Web UI auth + HTTPS",
+      "status": "todo",
+      "note": ""
+    },
+    {
+      "id": "P7.5",
+      "phase": "P7",
+      "title": "CI: build + test on Windows and Linux",
+      "status": "in_progress",
+      "note": "workflow added; first run pending"
+    },
+    {
+      "id": "P7.6",
+      "phase": "P7",
+      "title": "Standalone Windows installer (.exe, no Python needed)",
+      "status": "todo",
+      "note": ""
+    },
+    {
+      "id": "P7.7",
+      "phase": "P7",
+      "title": "Docker image",
       "status": "todo",
       "note": ""
     }

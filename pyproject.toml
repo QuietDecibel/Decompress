@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "decompress"
+dynamic = ["version"]
+description = "IoT camera discovery, multi-view video, human/creature motion analysis and Blender export, plus the Claude Progress Hub"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.26",
+    "opencv-python-headless>=4.9",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+mediapipe = ["mediapipe>=0.10.14"]          # 2D + 3D pose (recommended)
+yolo = ["ultralytics>=8.3"]                 # YOLO pose + animal detection
+all = ["mediapipe>=0.10.14", "ultralytics>=8.3"]
+dev = ["pytest>=8", "httpx>=0.27", "build>=1.2"]
+
+[project.scripts]
+decompress = "decompress.__main__:main"
+decompress-hub = "progress_hub.server:main"
+decompress-hub-client = "progress_hub.hub_client:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "decompress.__version__" }
+
+[tool.setuptools]
+package-dir = { "decompress" = "decompress", "progress_hub" = "hub" }
+packages = [
+    "decompress", "decompress.discovery", "decompress.vision", "decompress.motion",
+    "decompress.web", "decompress.web.static", "decompress.blender", "progress_hub", "progress_hub.static",
+]
+
+[tool.setuptools.package-data]
+"decompress.web.static" = ["*.html"]
+"progress_hub.static" = ["*.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

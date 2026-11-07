@@ -6,7 +6,7 @@ import cv2
 import numpy as np
 import pytest
 
-import import_motion as im   # blender/import_motion.py (pure helpers, no bpy needed)
+from decompress.blender import import_motion as im   # pure helpers, no bpy needed
 from decompress.jobs import JobQueue
 from decompress.motion import MotionRecorder, load_motion
 from decompress.pipeline import Analyzer

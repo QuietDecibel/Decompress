@@ -5,3 +5,7 @@ decompress_data/
 hub/data/
 *.blend
 *.blend1
+build/
+dist/
+*.egg-info/
+.venv/

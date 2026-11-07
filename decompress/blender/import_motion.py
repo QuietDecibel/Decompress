@@ -1,8 +1,10 @@
 """Import a Decompress .motion.json into Blender as an animated armature.
 
-Run from a terminal:
-    blender --python blender/import_motion.py -- path/to/clip.motion.json [--track 3] [--smooth 5] [--bake]
-or open it in Blender's Text Editor, set MOTION_PATH below, and press Run Script.
+Three ways to use it:
+  * Add-on: install dist/decompress_blender_addon.zip (Edit > Preferences > Add-ons > Install from Disk),
+    then File > Import > Decompress Motion (.motion.json).
+  * Terminal: blender --python import_motion.py -- path/to/clip.motion.json [--track 3] [--smooth 5] [--bake]
+  * Text Editor: open this file, set MOTION_PATH below, press Run Script.
 
 For each tracked person this creates:
   * one keyframed empty per joint (the raw motion capture), and
@@ -17,6 +19,16 @@ import json
 import sys
 
 import numpy as np
+
+bl_info = {
+    "name": "Decompress Motion Importer",
+    "author": "Decompress",
+    "version": (0, 1, 0),
+    "blender": (3, 6, 0),
+    "location": "File > Import > Decompress Motion (.motion.json)",
+    "description": "Rebuild motion captured by Decompress as an animated armature",
+    "category": "Import-Export",
+}
 
 MOTION_PATH = ""   # used when run from Blender's Text Editor
 
@@ -157,6 +169,56 @@ def build(motion: dict, track_id=None, window=5, bake=False):
             bpy.ops.object.mode_set(mode="OBJECT")
         created.append(arm.name)
     return created
+
+
+# ---------------------------------------------------------------- add-on registration
+_classes = []
+
+
+def _menu_func(self, context):
+    self.layout.operator("import_anim.decompress_motion", text="Decompress Motion (.motion.json)")
+
+
+def register():
+    import bpy
+    from bpy.props import BoolProperty, IntProperty, StringProperty
+    from bpy_extras.io_utils import ImportHelper
+
+    class IMPORT_OT_decompress_motion(bpy.types.Operator, ImportHelper):
+        """Import a Decompress .motion.json as an animated armature"""
+        bl_idname = "import_anim.decompress_motion"
+        bl_label = "Import Decompress Motion"
+        bl_options = {"REGISTER", "UNDO"}
+        filename_ext = ".json"
+        # Real property objects, not string annotations: this module uses `from __future__ import annotations`.
+        __annotations__ = {
+            "filter_glob": StringProperty(default="*.motion.json;*.json", options={"HIDDEN"}),
+            "track": IntProperty(name="Track ID", description="0 = import every tracked person", default=0, min=0),
+            "smooth_window": IntProperty(name="Smoothing (frames)", default=5, min=1, max=31),
+            "bake": BoolProperty(name="Bake to keyframes", default=True),
+        }
+
+        def execute(self, context):
+            try:
+                created = build(load_motion(self.filepath), self.track or None, self.smooth_window, self.bake)
+            except Exception as e:  # report in Blender's UI instead of a traceback
+                self.report({"ERROR"}, str(e))
+                return {"CANCELLED"}
+            self.report({"INFO"}, f"Imported {len(created)} rig(s): {', '.join(created)}")
+            return {"FINISHED"}
+
+    _classes[:] = [IMPORT_OT_decompress_motion]
+    for c in _classes:
+        bpy.utils.register_class(c)
+    bpy.types.TOPBAR_MT_file_import.append(_menu_func)
+
+
+def unregister():
+    import bpy
+    bpy.types.TOPBAR_MT_file_import.remove(_menu_func)
+    for c in reversed(_classes):
+        bpy.utils.unregister_class(c)
+    _classes.clear()
 
 
 def _cli(argv):

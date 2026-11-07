@@ -20,7 +20,7 @@ from ..vision.movement import MovementClassifier
 ROOT = Path(os.environ.get("DECOMPRESS_HOME", Path.cwd() / "decompress_data"))
 UPLOADS = ROOT / "uploads"
 STATIC = Path(__file__).parent / "static"
-BLENDER_SCRIPT = Path(__file__).resolve().parents[2] / "blender" / "import_motion.py"
+BLENDER_SCRIPT = Path(__file__).resolve().parents[1] / "blender" / "import_motion.py"
 CLASSIFIER_PATH = ROOT / "models" / "movement.json"
 
 

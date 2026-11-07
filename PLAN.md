@@ -1,7 +1,8 @@
 # Decompress — Project Plan
 
 Source of truth: [`plan.json`](plan.json). Push it to the Progress Hub with
-`python hub/hub_client.py sync plan.json`. Legend: `[x]` done · `[~]` in progress · `[ ]` to do.
+`decompress-hub-client sync plan.json`, and regenerate this file with `python scripts/render_plan.py`.
+Overall: **23/43 done (53%)**. Legend: `[x]` done · `[~]` in progress · `[ ]` to do.
 
 ## P0 — Foundation & Progress Hub  (4/5)
 
@@ -54,15 +55,18 @@ Source of truth: [`plan.json`](plan.json). Push it to the Progress Hub with
 ## P6 — Blender motion rebuild  (3/6)
 
 - [x] **P6.1** Record motion to .motion.json
-- [x] **P6.2** Blender importer: armature + baked animation — _verified with bpy 5.2_
+- [x] **P6.2** Blender importer: armature + baked animation — _also installs as a Blender add-on (File > Import); verified with bpy 5.2_
 - [x] **P6.3** Temporal smoothing
 - [ ] **P6.4** 2D-to-3D lifting for 2D-only backends
 - [ ] **P6.5** Retarget to Rigify / Mixamo rigs; BVH / FBX export
 - [ ] **P6.6** Live link: stream poses into Blender in real time
 
-## P7 — Quality & release  (2/4)
+## P7 — Quality & release  (3/7)
 
-- [x] **P7.1** Automated test suite — _23 tests_
+- [x] **P7.1** Automated test suite — _23 unit tests + wheel smoke test_
 - [x] **P7.2** Docs (README, PLAN)
-- [ ] **P7.3** Packaging (Docker / desktop installer)
+- [x] **P7.3** Install package: wheel, build/test/rebuild scripts (Windows + Linux), Blender add-on — _wheel smoke-tested in a clean venv; add-on tested in bpy 5.2_
 - [ ] **P7.4** Web UI auth + HTTPS
+- [~] **P7.5** CI: build + test on Windows and Linux — _workflow added; first run pending_
+- [ ] **P7.6** Standalone Windows installer (.exe, no Python needed)
+- [ ] **P7.7** Docker image
