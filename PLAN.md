@@ -2,7 +2,7 @@
 
 Source of truth: [`plan.json`](plan.json). Push it to the Progress Hub with
 `decompress-hub-client sync plan.json`, and regenerate this file with `python scripts/render_plan.py`.
-Overall: **23/43 done (53%)**. Legend: `[x]` done · `[~]` in progress · `[ ]` to do.
+Overall: **24/43 done (56%)**. Legend: `[x]` done · `[~]` in progress · `[ ]` to do.
 
 ## P0 — Foundation & Progress Hub  (4/5)
 
@@ -61,12 +61,12 @@ Overall: **23/43 done (53%)**. Legend: `[x]` done · `[~]` in progress · `[ ]` 
 - [ ] **P6.5** Retarget to Rigify / Mixamo rigs; BVH / FBX export
 - [ ] **P6.6** Live link: stream poses into Blender in real time
 
-## P7 — Quality & release  (3/7)
+## P7 — Quality & release  (4/7)
 
 - [x] **P7.1** Automated test suite — _23 unit tests + wheel smoke test_
 - [x] **P7.2** Docs (README, PLAN)
 - [x] **P7.3** Install package: wheel, build/test/rebuild scripts (Windows + Linux), Blender add-on — _wheel smoke-tested in a clean venv; add-on tested in bpy 5.2_
 - [ ] **P7.4** Web UI auth + HTTPS
-- [~] **P7.5** CI: build + test on Windows and Linux — _workflow added; first run pending_
+- [x] **P7.5** CI: build + test on Windows and Linux — _Windows + Linux, Python 3.11/3.12 all green_
 - [ ] **P7.6** Standalone Windows installer (.exe, no Python needed)
 - [ ] **P7.7** Docker image

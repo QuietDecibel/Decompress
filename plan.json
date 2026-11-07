@@ -322,8 +322,8 @@
       "id": "P7.5",
       "phase": "P7",
       "title": "CI: build + test on Windows and Linux",
-      "status": "in_progress",
-      "note": "workflow added; first run pending"
+      "status": "done",
+      "note": "Windows + Linux, Python 3.11/3.12 all green"
     },
     {
       "id": "P7.6",
