@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Decompress</title>
+<style>
+  :root { --bg:#0f1216; --panel:#171b21; --ink:#e8ecf1; --muted:#93a0b0; --line:#262c35; --accent:#4c9aff; --red:#ef6a5c; --green:#3fbf85; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.4 system-ui, sans-serif; }
+  header { display:flex; gap:12px; align-items:center; padding:10px 16px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  header h1 { font-size:17px; margin:0 12px 0 0; }
+  nav button { background:none; border:none; color:var(--muted); padding:6px 10px; cursor:pointer; font:inherit; border-radius:6px; }
+  nav button.on { color:var(--ink); background:var(--panel); }
+  .layout { display:flex; gap:6px; margin-left:auto; align-items:center; color:var(--muted); }
+  main { padding:12px 16px; }
+  .tab { display:none; } .tab.on { display:block; }
+  .grid { display:grid; gap:8px; grid-template-columns:repeat(var(--cols,2), minmax(0,1fr)); }
+  @media (max-width:700px) { .grid { grid-template-columns:1fr !important; } }
+  .tile { background:var(--panel); border:1px solid var(--line); border-radius:8px; overflow:hidden; display:flex; flex-direction:column; }
+  .tile img { width:100%; aspect-ratio:16/9; object-fit:contain; background:#000; display:block; }
+  .tile .bar { display:flex; gap:6px; align-items:center; padding:6px 8px; flex-wrap:wrap; }
+  .tile .name { font-weight:600; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .tile .meta { color:var(--muted); font-size:12px; padding:0 8px 6px; }
+  button.b { background:var(--line); color:var(--ink); border:none; border-radius:6px; padding:5px 9px; cursor:pointer; font:inherit; font-size:12px; }
+  button.b:hover, a.b:hover { background:#323a46; } a.b { background:var(--line); color:var(--ink); border-radius:6px; padding:5px 9px; font-size:12px; } button.b.primary { background:var(--accent); color:#fff; } button.b.rec { background:var(--red); color:#fff; }
+  input, select { background:var(--panel); color:var(--ink); border:1px solid var(--line); border-radius:6px; padding:6px 8px; font:inherit; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px; }
+  table { width:100%; border-collapse:collapse; } td, th { text-align:left; padding:6px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:500; font-size:12px; }
+  .prog { height:6px; background:var(--line); border-radius:3px; overflow:hidden; min-width:100px; } .prog span { display:block; height:100%; background:var(--green); }
+  .muted { color:var(--muted); } code { font-size:12px; word-break:break-all; }
+  .empty { padding:40px; text-align:center; color:var(--muted); border:1px dashed var(--line); border-radius:8px; }
+  .drop { border:2px dashed var(--line); border-radius:8px; padding:18px; text-align:center; color:var(--muted); }
+  .drop.over { border-color:var(--accent); color:var(--ink); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Decompress</h1>
+  <nav>
+    <button data-tab="grid" class="on">Multi-view</button>
+    <button data-tab="discover">Discover cameras</button>
+    <button data-tab="queue">Video queue</button>
+  </nav>
+  <div class="layout">Layout
+    <select id="cols"><option value="1">1×</option><option value="2" selected>2×2</option><option value="3">3×3</option><option value="4">4×4</option></select>
+    <span id="backend" class="muted"></span>
+  </div>
+</header>
+<main>
+  <section id="grid" class="tab on">
+    <div class="row">
+      <input id="url" placeholder="rtsp://user:pass@192.168.1.20:554/stream1  ·  http://…/video.mjpg  ·  0 for webcam" style="flex:1;min-width:240px">
+      <input id="name" placeholder="name (optional)" style="width:160px">
+      <button class="b primary" id="add">Add view</button>
+    </div>
+    <div class="row">
+      <div class="drop" id="drop" style="flex:1">Drop video files here (or <label style="color:var(--accent);cursor:pointer">browse<input type="file" id="file" accept="video/*" multiple hidden></label>)
+        — <label><input type="checkbox" id="dropView" checked> show in grid</label> <label><input type="checkbox" id="dropQueue" checked> add to queue</label></div>
+    </div>
+    <div class="grid" id="tiles"></div>
+  </section>
+
+  <section id="discover" class="tab">
+    <div class="row">
+      <input id="subnet" placeholder="subnet, e.g. 192.168.1.0/24 (blank = this machine's LAN)" style="width:340px">
+      <button class="b primary" id="scan">Scan my network</button>
+      <span id="scanStatus" class="muted"></span>
+    </div>
+    <p class="muted">Uses ONVIF WS-Discovery plus a probe of common camera ports on private subnets only. Enter your own camera's username/password in the URL before adding it.</p>
+    <table><thead><tr><th>IP</th><th>Name / vendor</th><th>Open ports</th><th>Found via</th><th>Stream URL</th><th></th></tr></thead><tbody id="cams"></tbody></table>
+  </section>
+
+  <section id="queue" class="tab">
+    <div class="row"><span class="muted">Imported videos are analysed frame by frame; each job writes an annotated video and a <code>.motion.json</code> for Blender.</span>
+      <a class="b" href="/api/blender/import_motion.py" style="text-decoration:none">Download Blender importer</a></div>
+    <table><thead><tr><th>#</th><th>Video</th><th>State</th><th>Progress</th><th>Tracks</th><th>Outputs</th><th></th></tr></thead><tbody id="jobs"></tbody></table>
+  </section>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const api = async (path, opts = {}) => {
+  const r = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts,
+    body: opts.body && typeof opts.body !== "string" && !(opts.body instanceof FormData) ? JSON.stringify(opts.body) : opts.body });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+  return r.json();
+};
+
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("nav button, .tab").forEach(e => e.classList.remove("on"));
+  b.classList.add("on"); $("#" + b.dataset.tab).classList.add("on");
+});
+const setCols = () => { $("#tiles").style.setProperty("--cols", $("#cols").value); try { localStorage.cols = $("#cols").value; } catch {} };
+try { if (localStorage.cols) $("#cols").value = localStorage.cols; } catch {}
+$("#cols").onchange = setCols; setCols();
+
+api("/api/backends").then(b => $("#backend").textContent = `· vision: ${b.selected} (${b.available.join(", ")})${b.classifier ? " · trained classifier" : ""}`);
+
+// ---- grid -------------------------------------------------------------
+const tiles = new Map();
+function tile(s) {
+  let el = tiles.get(s.id);
+  if (!el) {
+    el = document.createElement("div"); el.className = "tile";
+    el.innerHTML = `<img src="/api/sources/${s.id}/mjpeg" alt="">
+      <div class="bar"><span class="name"></span>
+        <button class="b" data-a="analyze"></button><button class="b" data-a="record"></button><button class="b" data-a="remove">✕</button></div>
+      <div class="meta"></div>`;
+    el.querySelector('[data-a=analyze]').onclick = () => api(`/api/sources/${s.id}/analyze`, { method: "POST", body: { on: !el._s.analyze } }).then(refresh);
+    el.querySelector('[data-a=record]').onclick = () => api(`/api/sources/${s.id}/record`, { method: "POST", body: { on: !el._s.recording } }).then(refresh);
+    el.querySelector('[data-a=remove]').onclick = () => api(`/api/sources/${s.id}`, { method: "DELETE" }).then(() => { el.remove(); tiles.delete(s.id); refresh(); });
+    tiles.set(s.id, el); $("#tiles").append(el);
+  }
+  el._s = s;
+  el.querySelector(".name").textContent = s.name;
+  el.querySelector(".name").title = s.url;
+  el.querySelector('[data-a=analyze]').textContent = s.analyze ? "Vision on" : "Vision off";
+  const rec = el.querySelector('[data-a=record]');
+  rec.textContent = s.recording ? "■ Stop rec" : "● Record motion"; rec.classList.toggle("rec", s.recording);
+  const people = s.tracks.map(t => `#${t.id} ${t.label}${t.movement ? ": " + t.movement : ""}`).join(" · ");
+  el.querySelector(".meta").innerHTML = `${esc(s.status)} · ${s.size[0]}×${s.size[1]} @ ${s.fps}fps${people ? "<br>" + esc(people) : ""}` +
+    (s.last_motion_file ? `<br>saved <a href="/api/files?path=${encodeURIComponent(s.last_motion_file)}">${esc(s.last_motion_file.split("/").pop())}</a>` : "");
+}
+async function refresh() {
+  const list = await api("/api/sources");
+  list.forEach(tile);
+  for (const [id, el] of tiles) if (!list.find(s => s.id === id)) { el.remove(); tiles.delete(id); }
+  if (!list.length) $("#tiles").innerHTML = `<div class="empty">No views yet — add a camera URL, drop a video, or scan your network.</div>`;
+  else $("#tiles .empty")?.remove();
+}
+$("#add").onclick = () => api("/api/sources", { method: "POST", body: { url: $("#url").value.trim(), name: $("#name").value.trim() } })
+  .then(() => { $("#url").value = ""; $("#name").value = ""; refresh(); }).catch(e => alert(e.message));
+
+async function upload(files) {
+  for (const f of files) {
+    const fd = new FormData(); fd.append("file", f);
+    fd.append("enqueue", $("#dropQueue").checked); fd.append("view", $("#dropView").checked);
+    await api("/api/upload", { method: "POST", body: fd });
+  }
+  refresh(); refreshJobs();
+}
+const drop = $("#drop");
+drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
+drop.ondragleave = () => drop.classList.remove("over");
+drop.ondrop = e => { e.preventDefault(); drop.classList.remove("over"); upload(e.dataTransfer.files); };
+$("#file").onchange = e => upload(e.target.files);
+
+// ---- discovery --------------------------------------------------------
+$("#scan").onclick = async () => {
+  $("#scanStatus").textContent = "scanning…"; $("#cams").innerHTML = "";
+  try {
+    const q = $("#subnet").value.trim();
+    const r = await api("/api/discover" + (q ? `?subnet=${encodeURIComponent(q)}` : ""));
+    $("#scanStatus").textContent = `${r.cameras.length} device(s) on ${r.subnet}`;
+    $("#cams").innerHTML = r.cameras.map((c, i) => `<tr>
+      <td>${esc(c.ip)}</td><td>${esc(c.name || "—")}<br><span class="muted">${esc(c.vendor_hint || c.rtsp_server || c.http_server)}</span></td>
+      <td>${c.ports.join(", ")}</td><td>${c.methods.join(", ")}</td>
+      <td><select id="u${i}" style="max-width:340px">${c.candidate_urls.map(u => `<option>${esc(u)}</option>`).join("")}</select>
+          <br><input id="cu${i}" placeholder="user" style="width:90px"> <input id="cp${i}" type="password" placeholder="password" style="width:110px"></td>
+      <td><button class="b primary" data-i="${i}">Add view</button></td></tr>`).join("") || `<tr><td colspan="6" class="muted">No cameras answered. Try entering the subnet explicitly, or add a camera URL by hand.</td></tr>`;
+    $("#cams").querySelectorAll("button[data-i]").forEach(b => b.onclick = () => {
+      const i = b.dataset.i, c = r.cameras[i];
+      const url = $(`#u${i}`).value.replace("USER:PASS@", $(`#cu${i}`).value ? `${encodeURIComponent($(`#cu${i}`).value)}:${encodeURIComponent($(`#cp${i}`).value)}@` : "");
+      api("/api/sources", { method: "POST", body: { url, name: c.name || c.ip } }).then(() => { refresh(); document.querySelector('[data-tab=grid]').click(); });
+    });
+  } catch (e) { $("#scanStatus").textContent = e.message; }
+};
+
+// ---- queue ------------------------------------------------------------
+async function refreshJobs() {
+  const jobs = await api("/api/queue");
+  $("#jobs").innerHTML = jobs.map((j, i) => `<tr>
+    <td>${i + 1}</td><td>${esc(j.name)}</td><td>${j.state}${j.error ? `<br><span class="muted">${esc(j.error)}</span>` : ""}</td>
+    <td><div class="prog"><span style="width:${100 * j.progress}%"></span></div><span class="muted">${Math.round(100 * j.progress)}%</span></td>
+    <td>${j.people || ""}</td>
+    <td>${Object.entries(j.outputs).map(([k, p]) => `<a href="/api/files?path=${encodeURIComponent(p)}">${k}</a>`).join(" · ")}</td>
+    <td>${j.state === "queued" ? `<button class="b" data-m="${j.id}" data-d="-1">↑</button><button class="b" data-m="${j.id}" data-d="1">↓</button>` : ""}
+        ${["queued", "running"].includes(j.state) ? `<button class="b" data-c="${j.id}">Cancel</button>` : ""}</td></tr>`).join("")
+    || `<tr><td colspan="7" class="muted">Queue is empty — drop videos on the Multi-view tab.</td></tr>`;
+  $("#jobs").querySelectorAll("[data-m]").forEach(b => b.onclick = () => api(`/api/queue/${b.dataset.m}/move`, { method: "POST", body: { delta: +b.dataset.d } }).then(refreshJobs));
+  $("#jobs").querySelectorAll("[data-c]").forEach(b => b.onclick = () => api(`/api/queue/${b.dataset.c}/cancel`, { method: "POST" }).then(refreshJobs));
+}
+refresh(); refreshJobs();
+setInterval(refresh, 1500); setInterval(refreshJobs, 2000);
+</script>
+</body>
+</html>

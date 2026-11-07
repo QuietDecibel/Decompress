@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Progress Hub</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --ink: #1b1f24; --muted: #5f6b7a; --line: #e3e7ec;
+    --done: #2f9e6b; --prog: #e0a526; --block: #d0493b; --todo: #dde2e8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0f1216; --card: #171b21; --ink: #e8ecf1; --muted: #93a0b0; --line: #262c35;
+            --done: #3fbf85; --prog: #f0b93a; --block: #ef6a5c; --todo: #2a313b; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { padding: 20px 16px 8px; max-width: 1100px; margin: 0 auto; display: flex;
+           align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  h1 { font-size: 20px; margin: 0; }
+  .muted { color: var(--muted); font-size: 13px; }
+  main { max-width: 1100px; margin: 0 auto; padding: 8px 16px 40px; display: grid; gap: 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  .row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  h2 { font-size: 17px; margin: 0; }
+  .pct { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .bar { display: flex; height: 12px; border-radius: 6px; overflow: hidden; background: var(--todo); margin: 10px 0 6px; }
+  .bar.small { height: 8px; margin: 4px 0; }
+  .bar span { display: block; height: 100%; transition: width .4s ease; }
+  .s-done { background: var(--done); } .s-in_progress { background: var(--prog); }
+  .s-blocked { background: var(--block); } .s-todo { background: var(--todo); }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+  .phases { align-items: start; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; margin-top: 14px; }
+  .phase { border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+  .phase h3 { font-size: 14px; margin: 0; flex: 1; min-width: 0; }
+  .phase .row { flex-wrap: nowrap; }
+  details summary { cursor: pointer; font-size: 12px; color: var(--muted); margin-top: 6px; }
+  ul.tasks { list-style: none; padding: 0; margin: 6px 0 0; font-size: 13px; }
+  ul.tasks li { display: flex; gap: 6px; padding: 2px 0; }
+  ul.tasks li .dot { margin-top: 6px; flex: none; }
+  .note { color: var(--muted); }
+  .events { margin-top: 14px; font-size: 13px; max-height: 180px; overflow: auto; border-top: 1px solid var(--line); padding-top: 8px; }
+  .events div { padding: 2px 0; }
+  .empty { text-align: center; padding: 40px 16px; }
+  code { background: var(--todo); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  .err { color: var(--block); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Claude Progress Hub</h1>
+  <span class="muted" id="status">connecting…</span>
+</header>
+<main id="root"></main>
+<script>
+const COLORS = ["done", "in_progress", "blocked", "todo"];
+const LABEL = { done: "Done", in_progress: "In progress", blocked: "Blocked", todo: "To do" };
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const ago = t => { const s = Math.max(0, Date.now() / 1000 - t);
+  return s < 60 ? `${Math.round(s)}s ago` : s < 3600 ? `${Math.round(s / 60)}m ago` : s < 86400 ? `${Math.round(s / 3600)}h ago` : `${Math.round(s / 86400)}d ago`; };
+
+function bar(progress, small) {
+  const total = progress.total || 1;
+  return `<div class="bar ${small ? "small" : ""}" role="progressbar" aria-valuenow="${progress.percent}" aria-valuemin="0" aria-valuemax="100">` +
+    COLORS.filter(c => c !== "todo").map(c => `<span class="s-${c}" style="width:${100 * progress.counts[c] / total}%" title="${LABEL[c]}: ${progress.counts[c]}"></span>`).join("") +
+    `</div>`;
+}
+
+function project(p) {
+  const pr = p.progress;
+  const legend = COLORS.map(c => `<span><span class="dot s-${c}"></span>${LABEL[c]} ${pr.counts[c]}</span>`).join("");
+  const phases = p.phases.map(ph => {
+    const tasks = p.tasks.filter(t => t.phase === ph.id);
+    return `<div class="phase">
+      <div class="row"><h3>${esc(ph.title)}</h3><span class="pct">${ph.progress.percent}%</span></div>
+      ${bar(ph.progress, true)}
+      <details><summary>${ph.progress.counts.done}/${ph.progress.total} tasks</summary>
+        <ul class="tasks">${tasks.map(t => `<li><span class="dot s-${t.status}" title="${LABEL[t.status]}"></span>
+          <span>${esc(t.title)}${t.note ? ` <span class="note">— ${esc(t.note)}</span>` : ""}</span></li>`).join("")}</ul>
+      </details></div>`;
+  }).join("");
+  const events = (p.events || []).slice(-30).reverse()
+    .map(e => `<div><span class="muted">${ago(e.t)}${e.agent ? " · " + esc(e.agent) : ""}</span> ${esc(e.message)}</div>`).join("");
+  return `<section class="card">
+    <div class="row"><h2>${esc(p.name)}</h2><span class="pct">${pr.percent}% <span class="muted">(${pr.counts.done}/${pr.total})</span></span></div>
+    ${p.description ? `<div class="muted">${esc(p.description)}</div>` : ""}
+    ${bar(pr)}
+    <div class="legend">${legend}<span>updated ${ago(p.updated)}${p.agent ? " by " + esc(p.agent) : ""}</span></div>
+    ${phases ? `<div class="phases">${phases}</div>` : ""}
+    ${events ? `<div class="events">${events}</div>` : ""}
+  </section>`;
+}
+
+const open = new Set();
+async function refresh() {
+  document.querySelectorAll("details").forEach((d, i) => d.open ? open.add(i) : open.delete(i));
+  try {
+    const r = await fetch("api/projects");
+    const { projects } = await r.json();
+    document.getElementById("root").innerHTML = projects.length ? projects.map(project).join("") :
+      `<div class="card empty"><h2>No projects yet</h2><p class="muted">Report one with<br>
+       <code>python hub/hub_client.py sync plan.json</code></p></div>`;
+    document.querySelectorAll("details").forEach((d, i) => { if (open.has(i)) d.open = true; });
+    document.getElementById("status").textContent = `${projects.length} project(s) · live`;
+    document.getElementById("status").className = "muted";
+  } catch (e) {
+    document.getElementById("status").textContent = "hub unreachable — retrying";
+    document.getElementById("status").className = "err";
+  }
+}
+refresh(); setInterval(refresh, 3000);
+</script>
+</body>
+</html>

@@ -1,0 +1,322 @@
+{
+  "id": "decompress",
+  "name": "Decompress \u2014 IoT camera vision & motion capture",
+  "description": "Discover IP cameras, view many feeds at once, track human/creature movement, learn movements, rebuild them in Blender.",
+  "repo": "QuietDecibel/Decompress",
+  "phases": [
+    {
+      "id": "P0",
+      "title": "Foundation & Progress Hub"
+    },
+    {
+      "id": "P1",
+      "title": "Camera discovery"
+    },
+    {
+      "id": "P2",
+      "title": "Video sources & multi-view"
+    },
+    {
+      "id": "P3",
+      "title": "Video queue"
+    },
+    {
+      "id": "P4",
+      "title": "Detection, pose & tracking"
+    },
+    {
+      "id": "P5",
+      "title": "Training on what it sees"
+    },
+    {
+      "id": "P6",
+      "title": "Blender motion rebuild"
+    },
+    {
+      "id": "P7",
+      "title": "Quality & release"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "P0.1",
+      "phase": "P0",
+      "title": "Project plan & task breakdown (plan.json / PLAN.md)",
+      "status": "done",
+      "note": ""
+    },
+    {
+      "id": "P0.2",
+      "phase": "P0",
+      "title": "Progress Hub server + REST API",
+      "status": "done",
+      "note": ""
+    },
+    {
+      "id": "P0.3",
+      "phase": "P0",
+      "title": "Hub dashboard with live progress bars",
+      "status": "done",
+      "note": ""
+    },
+    {
+      "id": "P0.4",
+      "phase": "P0",
+      "title": "Hub client so other Claude projects can report",
+      "status": "done",
+      "note": ""
+    },
+    {
+      "id": "P0.5",
+      "phase": "P0",
+      "title": "Host the hub where cloud Claude sessions can reach it",
+      "status": "todo",
+      "note": "needs a public URL + HUB_TOKEN"
+    },
+    {
+      "id": "P1.1",
+      "phase": "P1",
+      "title": "ONVIF WS-Discovery probe",
+      "status": "done",
+      "note": "unit-tested; validate on hardware (P1.6)"
+    },
+    {
+      "id": "P1.2",
+      "phase": "P1",
+      "title": "Private-subnet port probe + RTSP OPTIONS check",
+      "status": "done",
+      "note": ""
+    },
+    {
+      "id": "P1.3",
+      "phase": "P1",
+      "title": "Vendor stream-URL templates",
+      "status": "done",
+      "note": ""
+    },
+    {
+      "id": "P1.4",
+      "phase": "P1",
+      "title": "ONVIF GetStreamUri with the user's credentials",
+      "status": "todo",
+      "note": ""
+    },
+    {
+      "id": "P1.5",
+      "phase": "P1",
+      "title": "Encrypted credential store for cameras",
+      "status": "todo",
+      "note": ""
+    },
+    {
+      "id": "P1.6",
+      "phase": "P1",
+      "title": "Validate on real cameras (Hikvision, Dahua, Reolink, Wyze...)",
+      "status": "todo",
+      "note": ""
+    },
+    {
+      "id": "P2.1",
+      "phase": "P2",
+      "title": "Capture threads with reconnect (RTSP / HTTP / webcam / file)",
+      "status": "done",
+      "note": ""
+    },
+    {
+      "id": "P2.2",
+      "phase": "P2",
+      "title": "Multi-view grid UI (1x1 to 4x4)",
+      "status": "done",
+      "note": ""
+    },
+    {
+      "id": "P2.3",
+      "phase": "P2",
+      "title": "Import videos by drag & drop",
+      "status": "done",
+      "note": ""
+    },
+    {
+      "id": "P2.4",
+      "phase": "P2",
+      "title": "Focus/fullscreen tile + PTZ controls",
+      "status": "todo",
+      "note": ""
+    },
+    {
+      "id": "P2.5",
+      "phase": "P2",
+      "title": "Hardware-accelerated decoding",
+      "status": "todo",
+      "note": ""
+    },
+    {
+      "id": "P3.1",
+      "phase": "P3",
+      "title": "Persistent queue with reorder / cancel / resume",
+      "status": "done",
+      "note": ""
+    },
+    {
+      "id": "P3.2",
+      "phase": "P3",
+      "title": "Background worker writing annotated video + motion",
+      "status": "done",
+      "note": ""
+    },
+    {
+      "id": "P3.3",
+      "phase": "P3",
+      "title": "Parallel workers + import whole folders",
+      "status": "todo",
+      "note": ""
+    },
+    {
+      "id": "P4.1",
+      "phase": "P4",
+      "title": "Pluggable backends: MediaPipe, YOLO-pose, HOG",
+      "status": "done",
+      "note": ""
+    },
+    {
+      "id": "P4.2",
+      "phase": "P4",
+      "title": "Multi-person tracker with stable IDs + trails",
+      "status": "done",
+      "note": ""
+    },
+    {
+      "id": "P4.3",
+      "phase": "P4",
+      "title": "Rule-based movement description",
+      "status": "done",
+      "note": "walking / running / crouching / arms raised"
+    },
+    {
+      "id": "P4.4",
+      "phase": "P4",
+      "title": "Creature detection (YOLO animal classes)",
+      "status": "in_progress",
+      "note": "backend written; ultralytics not yet tested"
+    },
+    {
+      "id": "P4.5",
+      "phase": "P4",
+      "title": "Animal pose estimation (quadruped skeletons)",
+      "status": "todo",
+      "note": ""
+    },
+    {
+      "id": "P4.6",
+      "phase": "P4",
+      "title": "Re-identify the same person across cameras",
+      "status": "todo",
+      "note": ""
+    },
+    {
+      "id": "P5.1",
+      "phase": "P5",
+      "title": "Trainable movement classifier (k-NN on pose features)",
+      "status": "done",
+      "note": ""
+    },
+    {
+      "id": "P5.2",
+      "phase": "P5",
+      "title": "Train from labelled clips (CLI)",
+      "status": "done",
+      "note": ""
+    },
+    {
+      "id": "P5.3",
+      "phase": "P5",
+      "title": "Labelling UI in the app",
+      "status": "todo",
+      "note": ""
+    },
+    {
+      "id": "P5.4",
+      "phase": "P5",
+      "title": "Deep sequence model (temporal CNN / transformer)",
+      "status": "todo",
+      "note": ""
+    },
+    {
+      "id": "P5.5",
+      "phase": "P5",
+      "title": "Fine-tune detectors on custom footage",
+      "status": "todo",
+      "note": ""
+    },
+    {
+      "id": "P6.1",
+      "phase": "P6",
+      "title": "Record motion to .motion.json",
+      "status": "done",
+      "note": ""
+    },
+    {
+      "id": "P6.2",
+      "phase": "P6",
+      "title": "Blender importer: armature + baked animation",
+      "status": "done",
+      "note": "verified with bpy 5.2"
+    },
+    {
+      "id": "P6.3",
+      "phase": "P6",
+      "title": "Temporal smoothing",
+      "status": "done",
+      "note": ""
+    },
+    {
+      "id": "P6.4",
+      "phase": "P6",
+      "title": "2D-to-3D lifting for 2D-only backends",
+      "status": "todo",
+      "note": ""
+    },
+    {
+      "id": "P6.5",
+      "phase": "P6",
+      "title": "Retarget to Rigify / Mixamo rigs; BVH / FBX export",
+      "status": "todo",
+      "note": ""
+    },
+    {
+      "id": "P6.6",
+      "phase": "P6",
+      "title": "Live link: stream poses into Blender in real time",
+      "status": "todo",
+      "note": ""
+    },
+    {
+      "id": "P7.1",
+      "phase": "P7",
+      "title": "Automated test suite",
+      "status": "done",
+      "note": "23 tests"
+    },
+    {
+      "id": "P7.2",
+      "phase": "P7",
+      "title": "Docs (README, PLAN)",
+      "status": "done",
+      "note": ""
+    },
+    {
+      "id": "P7.3",
+      "phase": "P7",
+      "title": "Packaging (Docker / desktop installer)",
+      "status": "todo",
+      "note": ""
+    },
+    {
+      "id": "P7.4",
+      "phase": "P7",
+      "title": "Web UI auth + HTTPS",
+      "status": "todo",
+      "note": ""
+    }
+  ]
+}

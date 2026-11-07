@@ -1,0 +1,8 @@
+numpy>=1.26
+opencv-python-headless>=4.9
+fastapi>=0.110
+uvicorn>=0.29
+python-multipart>=0.0.9
+# Vision backends (install at least one for skeletons; HOG person boxes work without them)
+mediapipe>=0.10.14    # 2D + 3D pose, recommended for Blender export
+# ultralytics>=8.3    # optional: YOLO pose + animal detection
