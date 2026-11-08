@@ -42,6 +42,8 @@ class Source:
     last_jpeg: bytes = b""
     tracks_summary: list = field(default_factory=list)
     recording: bool = False
+    camera_id: str = ""                    # saved camera this view belongs to (for PTZ / credentials)
+    ptz: bool = False
 
     def __post_init__(self):
         if not self.name:
@@ -144,4 +146,5 @@ class Source:
     def info(self) -> dict:
         return {"id": self.id, "name": self.name, "kind": self.kind, "status": self.status, "fps": round(self.fps, 1),
                 "size": list(self.size), "analyze": self.analyze, "recording": self.recording,
-                "tracks": self.tracks_summary, "url": redact(self.url), "last_motion_file": self.last_motion_file}
+                "tracks": self.tracks_summary, "url": redact(self.url), "last_motion_file": self.last_motion_file,
+                "camera_id": self.camera_id, "ptz": self.ptz}

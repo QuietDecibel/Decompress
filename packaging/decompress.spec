@@ -17,7 +17,8 @@ datas = [
 ]
 binaries = []
 hiddenimports = ["hub", "hub.server", "hub.hub_client"] + collect_submodules("decompress") \
-    + collect_submodules("uvicorn") + collect_submodules("python_multipart")
+    + collect_submodules("uvicorn") + collect_submodules("python_multipart") \
+    + collect_submodules("keyring.backends")
 
 for optional in ("mediapipe", "ultralytics"):          # bundle the vision backends that are installed
     if importlib.util.find_spec(optional):

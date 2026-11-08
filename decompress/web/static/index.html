@@ -33,6 +33,11 @@
   .empty { padding:40px; text-align:center; color:var(--muted); border:1px dashed var(--line); border-radius:8px; }
   .drop { border:2px dashed var(--line); border-radius:8px; padding:18px; text-align:center; color:var(--muted); }
   .drop.over { border-color:var(--accent); color:var(--ink); }
+  .tile.focus { grid-column:1 / -1; }
+  .tile .view { position:relative; }
+  .ptz { position:absolute; right:8px; bottom:8px; display:grid; grid-template-columns:repeat(3,30px); gap:3px; opacity:.85; }
+  .ptz button { width:30px; height:30px; padding:0; font-size:14px; }
+  h2 { font-size:15px; margin:22px 0 8px; }
 </style>
 </head>
 <body>
@@ -68,8 +73,21 @@
       <button class="b primary" id="scan">Scan my network</button>
       <span id="scanStatus" class="muted"></span>
     </div>
-    <p class="muted">Uses ONVIF WS-Discovery plus a probe of common camera ports on private subnets only. Enter your own camera's username/password in the URL before adding it.</p>
-    <table><thead><tr><th>IP</th><th>Name / vendor</th><th>Open ports</th><th>Found via</th><th>Stream URL</th><th></th></tr></thead><tbody id="cams"></tbody></table>
+    <p class="muted">Uses ONVIF WS-Discovery plus a probe of common camera ports on private subnets only. Enter your camera's own username and password:
+      ONVIF cameras then give their stream address automatically. Saved passwords go to <span id="store">the OS credential store</span>, never into files or URLs shown here.</p>
+    <table><thead><tr><th>IP</th><th>Name / vendor</th><th>Open ports</th><th>Found via</th><th>Login &amp; stream</th><th></th></tr></thead><tbody id="cams"></tbody></table>
+
+    <h2>Add a camera by hand</h2>
+    <div class="row">
+      <input id="mName" placeholder="name" style="width:140px">
+      <input id="mUrl" placeholder="rtsp://192.168.1.20:554/stream1  or  http://192.168.1.20/onvif/device_service" style="flex:1;min-width:260px">
+      <input id="mUser" placeholder="user" style="width:100px"><input id="mPass" type="password" placeholder="password" style="width:120px">
+      <label><input type="checkbox" id="mSave" checked> remember</label>
+      <button class="b primary" id="mAdd">Connect</button>
+    </div>
+
+    <h2>Saved cameras</h2>
+    <table><thead><tr><th>Name</th><th>Stream</th><th>PTZ</th><th>Starts with app</th><th></th></tr></thead><tbody id="saved"></tbody></table>
   </section>
 
   <section id="queue" class="tab">
@@ -104,10 +122,23 @@ function tile(s) {
   let el = tiles.get(s.id);
   if (!el) {
     el = document.createElement("div"); el.className = "tile";
-    el.innerHTML = `<img src="/api/sources/${s.id}/mjpeg" alt="">
+    el.innerHTML = `<div class="view"><img src="/api/sources/${s.id}/mjpeg" alt="" title="Double-click for fullscreen">
+        ${s.ptz ? `<div class="ptz">${[["", 0, 0], ["▲", 0, .5], ["", 0, 0], ["◀", -.5, 0], ["■", 0, 0], ["▶", .5, 0], ["＋", "z", .5], ["▼", 0, -.5], ["－", "z", -.5]]
+          .map(([t, x, y]) => t ? `<button class="b" data-ptz="${x},${y}">${t}</button>` : "<span></span>").join("")}</div>` : ""}</div>
       <div class="bar"><span class="name"></span>
-        <button class="b" data-a="analyze"></button><button class="b" data-a="record"></button><button class="b" data-a="remove">✕</button></div>
+        <button class="b" data-a="analyze"></button><button class="b" data-a="record"></button>
+        <button class="b" data-a="focus" title="Focus this view">⤢</button><button class="b" data-a="remove">✕</button></div>
       <div class="meta"></div>`;
+    const img = el.querySelector("img");
+    img.ondblclick = () => document.fullscreenElement ? document.exitFullscreen() : img.requestFullscreen?.();
+    el.querySelector('[data-a=focus]').onclick = () => { el.classList.toggle("focus"); if (el.classList.contains("focus")) el.scrollIntoView({ behavior: "smooth" }); };
+    el.querySelectorAll("[data-ptz]").forEach(b => {
+      const [x, y] = b.dataset.ptz.split(",");
+      const body = x === "z" ? { zoom: +y } : { pan: +x, tilt: +y };
+      const move = () => api(`/api/sources/${s.id}/ptz`, { method: "POST", body: b.textContent === "■" ? { stop: true } : body }).catch(e => alert(e.message));
+      const stop = () => b.textContent !== "■" && api(`/api/sources/${s.id}/ptz`, { method: "POST", body: { stop: true } }).catch(() => {});
+      b.onpointerdown = move; b.onpointerup = stop; b.onpointerleave = e => e.buttons && stop();
+    });
     el.querySelector('[data-a=analyze]').onclick = () => api(`/api/sources/${s.id}/analyze`, { method: "POST", body: { on: !el._s.analyze } }).then(refresh);
     el.querySelector('[data-a=record]').onclick = () => api(`/api/sources/${s.id}/record`, { method: "POST", body: { on: !el._s.recording } }).then(refresh);
     el.querySelector('[data-a=remove]').onclick = () => api(`/api/sources/${s.id}`, { method: "DELETE" }).then(() => { el.remove(); tiles.delete(s.id); refresh(); });
@@ -157,16 +188,44 @@ $("#scan").onclick = async () => {
     $("#cams").innerHTML = r.cameras.map((c, i) => `<tr>
       <td>${esc(c.ip)}</td><td>${esc(c.name || "—")}<br><span class="muted">${esc(c.vendor_hint || c.rtsp_server || c.http_server)}</span></td>
       <td>${c.ports.join(", ")}</td><td>${c.methods.join(", ")}</td>
-      <td><select id="u${i}" style="max-width:340px">${c.candidate_urls.map(u => `<option>${esc(u)}</option>`).join("")}</select>
-          <br><input id="cu${i}" placeholder="user" style="width:90px"> <input id="cp${i}" type="password" placeholder="password" style="width:110px"></td>
-      <td><button class="b primary" data-i="${i}">Add view</button></td></tr>`).join("") || `<tr><td colspan="6" class="muted">No cameras answered. Try entering the subnet explicitly, or add a camera URL by hand.</td></tr>`;
+      <td>${c.onvif_url ? `<span class="muted">ONVIF: stream found automatically</span>` :
+            `<select id="u${i}" style="max-width:300px">${c.candidate_urls.map(u => `<option>${esc(u.replace("USER:PASS@", ""))}</option>`).join("")}</select>`}
+          <br><input id="cu${i}" placeholder="user" style="width:90px"> <input id="cp${i}" type="password" placeholder="password" style="width:110px">
+          <label class="muted"><input type="checkbox" id="cs${i}" checked> remember</label></td>
+      <td><button class="b primary" data-i="${i}">Connect</button></td></tr>`).join("") || `<tr><td colspan="6" class="muted">No cameras answered. Try entering the subnet explicitly, or add a camera URL by hand.</td></tr>`;
     $("#cams").querySelectorAll("button[data-i]").forEach(b => b.onclick = () => {
       const i = b.dataset.i, c = r.cameras[i];
-      const url = $(`#u${i}`).value.replace("USER:PASS@", $(`#cu${i}`).value ? `${encodeURIComponent($(`#cu${i}`).value)}:${encodeURIComponent($(`#cp${i}`).value)}@` : "");
-      api("/api/sources", { method: "POST", body: { url, name: c.name || c.ip } }).then(() => { refresh(); document.querySelector('[data-tab=grid]').click(); });
+      connectCamera({ name: c.name || c.ip, ip: c.ip, onvif_url: c.onvif_url, url: c.onvif_url ? "" : $(`#u${i}`).value,
+                      user: $(`#cu${i}`).value, password: $(`#cp${i}`).value, remember: $(`#cs${i}`).checked }, b);
     });
   } catch (e) { $("#scanStatus").textContent = e.message; }
 };
+
+async function connectCamera(body, btn) {
+  const label = btn.textContent; btn.textContent = "Connecting…"; btn.disabled = true;
+  try {
+    await api("/api/cameras", { method: "POST", body: { ...body, start: true } });
+    refresh(); refreshSaved(); document.querySelector('[data-tab=grid]').click();
+  } catch (e) { alert(e.message); }
+  finally { btn.textContent = label; btn.disabled = false; }
+}
+$("#mAdd").onclick = () => {
+  const u = $("#mUrl").value.trim(), onvif = /^https?:\/\/.*onvif/i.test(u);
+  connectCamera({ name: $("#mName").value.trim(), url: onvif ? "" : u, onvif_url: onvif ? u : "",
+                  user: $("#mUser").value, password: $("#mPass").value, remember: $("#mSave").checked }, $("#mAdd"));
+};
+async function refreshSaved() {
+  const r = await api("/api/cameras");
+  $("#store").textContent = r.secret_store.startsWith("os-keyring") ? "the OS credential store" : "an encrypted file in your data folder";
+  $("#saved").innerHTML = r.cameras.map(c => `<tr><td>${esc(c.name)}</td><td><code>${esc(c.url)}</code>${c.has_credentials ? ' <span class="muted">🔒</span>' : ""}</td>
+    <td>${c.ptz ? "yes" : "—"}</td><td>${c.autostart ? "yes" : "no"}</td>
+    <td><button class="b" data-view="${c.id}">View</button> <button class="b" data-del="${c.id}">Forget</button></td></tr>`).join("")
+    || `<tr><td colspan="5" class="muted">No saved cameras yet.</td></tr>`;
+  $("#saved").querySelectorAll("[data-view]").forEach(b => b.onclick = () => api(`/api/cameras/${b.dataset.view}/view`, { method: "POST" }).then(() => { refresh(); document.querySelector('[data-tab=grid]').click(); }));
+  $("#saved").querySelectorAll("[data-del]").forEach(b => b.onclick = () => confirm("Forget this camera and its saved password?") &&
+    api(`/api/cameras/${b.dataset.del}`, { method: "DELETE" }).then(() => { refreshSaved(); refresh(); }));
+}
+refreshSaved();
 
 // ---- queue ------------------------------------------------------------
 async function refreshJobs() {

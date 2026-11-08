@@ -2,7 +2,7 @@
 
 Source of truth: [`plan.json`](plan.json). Push it to the Progress Hub with
 `decompress-hub-client sync plan.json`, and regenerate this file with `python scripts/render_plan.py`.
-Overall: **25/43 done (58%)**. Legend: `[x]` done · `[~]` in progress · `[ ]` to do.
+Overall: **28/43 done (65%)**. Legend: `[x]` done · `[~]` in progress · `[ ]` to do.
 
 ## P0 — Foundation & Progress Hub  (4/5)
 
@@ -12,21 +12,21 @@ Overall: **25/43 done (58%)**. Legend: `[x]` done · `[~]` in progress · `[ ]` 
 - [x] **P0.4** Hub client so other Claude projects can report
 - [ ] **P0.5** Host the hub where cloud Claude sessions can reach it — _needs a public URL + HUB_TOKEN_
 
-## P1 — Camera discovery  (3/6)
+## P1 — Camera discovery  (5/6)
 
 - [x] **P1.1** ONVIF WS-Discovery probe — _unit-tested; validate on hardware (P1.6)_
 - [x] **P1.2** Private-subnet port probe + RTSP OPTIONS check
 - [x] **P1.3** Vendor stream-URL templates
-- [ ] **P1.4** ONVIF GetStreamUri with the user's credentials
-- [ ] **P1.5** Encrypted credential store for cameras
+- [x] **P1.4** ONVIF GetStreamUri with the user's credentials — _WS-Security digest auth; tested against a simulated ONVIF camera_
+- [x] **P1.5** Encrypted credential store for cameras — _OS keyring (Windows Credential Manager etc.), else Fernet-encrypted file_
 - [ ] **P1.6** Validate on real cameras (Hikvision, Dahua, Reolink, Wyze...)
 
-## P2 — Video sources & multi-view  (3/5)
+## P2 — Video sources & multi-view  (4/5)
 
 - [x] **P2.1** Capture threads with reconnect (RTSP / HTTP / webcam / file)
 - [x] **P2.2** Multi-view grid UI (1x1 to 4x4)
 - [x] **P2.3** Import videos by drag & drop
-- [ ] **P2.4** Focus/fullscreen tile + PTZ controls
+- [x] **P2.4** Focus/fullscreen tile + PTZ controls — _focus/fullscreen tiles, ONVIF PTZ pad; saved cameras auto-start_
 - [ ] **P2.5** Hardware-accelerated decoding
 
 ## P3 — Video queue  (2/3)

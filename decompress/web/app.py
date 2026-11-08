@@ -11,6 +11,8 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
 from .. import discovery, progress
+from ..cameras import CameraRegistry, SavedCamera
+from ..discovery import onvif_client
 from ..jobs import JobQueue
 from ..pipeline import Analyzer
 from ..sources import Source
@@ -44,6 +46,32 @@ class Move(BaseModel):
     delta: int
 
 
+class OnvifLogin(BaseModel):
+    onvif_url: str
+    user: str = ""
+    password: str = ""
+
+
+class NewCamera(BaseModel):
+    name: str = ""
+    ip: str = ""
+    url: str = ""                 # RTSP/HTTP URL (without credentials); optional when onvif_url is given
+    onvif_url: str = ""
+    profile: str = ""             # ONVIF profile token; default = highest resolution
+    user: str = ""
+    password: str = ""
+    remember: bool = True         # save the camera (credentials go to the OS keyring / encrypted store)
+    autostart: bool = True
+    start: bool = True
+
+
+class Ptz(BaseModel):
+    pan: float = 0.0
+    tilt: float = 0.0
+    zoom: float = 0.0
+    stop: bool = False
+
+
 def create_app(backend: str | None = None, hub_project: str | None = None) -> FastAPI:
     app = FastAPI(title="Decompress")
     UPLOADS.mkdir(parents=True, exist_ok=True)
@@ -58,6 +86,8 @@ def create_app(backend: str | None = None, hub_project: str | None = None) -> Fa
             progress.log(hub_project, f"queue job {job['name']}: {job['state']}")
 
     sources: dict[str, Source] = {}
+    registry = CameraRegistry(ROOT / "cameras")
+    app.state.registry = registry
     queue = JobQueue(ROOT, analyzer_factory=factory, on_change=on_job).start()
     app.state.sources, app.state.queue = sources, queue
 
@@ -83,6 +113,7 @@ def create_app(backend: str | None = None, hub_project: str | None = None) -> Fa
             d = c.to_dict()
             port = next((p for p in c.ports if p in (554, 8554)), 554)
             d["candidate_urls"] = discovery.candidate_urls(c.ip, port, c.vendor_hint, "USER", "PASS")[:4]
+            d["onvif_url"] = next((x for x in c.onvif_xaddrs if x.startswith("http") and "[" not in x), "")
             out.append(d)
         return {"subnet": subnet or discovery.local_subnet(), "cameras": out}
 
@@ -102,6 +133,91 @@ def create_app(backend: str | None = None, hub_project: str | None = None) -> Fa
         if sid not in sources:
             raise HTTPException(404, "unknown source")
         return sources[sid]
+
+    # ---- saved cameras (ONVIF + secure credentials) -----------------------
+    def _start_camera(cam: SavedCamera) -> Source:
+        s = Source(url=registry.stream_url(cam.id), name=cam.name, kind="camera",
+                   camera_id=cam.id, ptz=cam.ptz).start(factory)
+        sources[s.id] = s
+        return s
+
+    @app.post("/api/onvif/connect")
+    def onvif_connect(body: OnvifLogin):
+        try:
+            cam = onvif_client.connect(body.onvif_url, body.user, body.password)
+        except onvif_client.OnvifError as e:
+            raise HTTPException(400, str(e))
+        return {"media_url": cam.media_url, "ptz_url": cam.ptz_url,
+                "profiles": [vars(p) for p in cam.profiles]}
+
+    @app.get("/api/cameras")
+    def list_cameras():
+        return {"cameras": registry.list(), "secret_store": registry.secrets.name}
+
+    @app.post("/api/cameras")
+    def add_camera(body: NewCamera):
+        cam = SavedCamera(name=body.name or body.ip or "camera", ip=body.ip, url=body.url,
+                          onvif_url=body.onvif_url, autostart=body.autostart)
+        if body.onvif_url:
+            try:
+                info = onvif_client.connect(body.onvif_url, body.user, body.password)
+            except onvif_client.OnvifError as e:
+                raise HTTPException(400, str(e))
+            prof = next((p for p in info.profiles if p.token == body.profile), None) or info.best_profile()
+            if prof is None:
+                raise HTTPException(400, "camera has no RTSP stream profile")
+            cam.url = cam.url or prof.stream_uri
+            cam.profile, cam.ptz_url = prof.token, info.ptz_url
+            cam.ptz = bool(info.ptz_url and prof.ptz)
+        if not cam.url:
+            raise HTTPException(400, "give a stream url or an onvif_url")
+        if "@" in cam.url.split("//", 1)[-1].split("/", 1)[0]:
+            raise HTTPException(400, "put the username/password in the user/password fields, not the URL")
+        if body.remember:
+            registry.add(cam, body.user, body.password)
+        result = {"camera": vars(cam)}
+        if body.start:
+            if body.remember:
+                result["source"] = _start_camera(cam).info()
+            else:
+                s = Source(url=onvif_client.with_credentials(cam.url, body.user, body.password), name=cam.name).start(factory)
+                sources[s.id] = s
+                result["source"] = s.info()
+        return result
+
+    @app.post("/api/cameras/{cid}/view")
+    def view_camera(cid: str):
+        if cid not in registry.cameras:
+            raise HTTPException(404, "unknown camera")
+        return _start_camera(registry.cameras[cid]).info()
+
+    @app.delete("/api/cameras/{cid}")
+    def delete_camera(cid: str):
+        for sid in [k for k, s in sources.items() if s.camera_id == cid]:
+            sources.pop(sid).stop()
+        if not registry.remove(cid):
+            raise HTTPException(404, "unknown camera")
+        return {"removed": cid}
+
+    @app.post("/api/sources/{sid}/ptz")
+    def ptz(sid: str, body: Ptz):
+        s = _get(sid)
+        cam = registry.cameras.get(s.camera_id)
+        if not (cam and cam.ptz):
+            raise HTTPException(400, "this view has no PTZ")
+        user, password = registry.credentials(cam.id)
+        try:
+            if body.stop:
+                onvif_client.ptz_stop(cam.ptz_url, cam.profile, user, password)
+            else:
+                onvif_client.ptz_move(cam.ptz_url, cam.profile, body.pan, body.tilt, body.zoom, user, password)
+        except onvif_client.OnvifError as e:
+            raise HTTPException(502, str(e))
+        return {"ok": True}
+
+    for saved in list(registry.cameras.values()):         # bring back saved camera views on startup
+        if saved.autostart:
+            _start_camera(saved)
 
     @app.delete("/api/sources/{sid}")
     def remove_source(sid: str):
