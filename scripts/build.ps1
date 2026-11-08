@@ -24,7 +24,9 @@ param(
     [string]$Command = "",
     [string]$Extras = "mediapipe,dev",
     [string]$Python = "",
-    [string]$Choice = "",       # pick a menu item without typing (used by CI)
+    # Pick a menu item without typing (used by CI).
+    [string]$Choice = "",
+    # Don't wait for Enter at the end.
     [switch]$NoPause
 )
 $ErrorActionPreference = "Stop"
