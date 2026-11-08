@@ -21,9 +21,11 @@ mediapipe = ["mediapipe>=0.10.14"]          # 2D + 3D pose (recommended)
 yolo = ["ultralytics>=8.3"]                 # YOLO pose + animal detection
 all = ["mediapipe>=0.10.14", "ultralytics>=8.3"]
 dev = ["pytest>=8", "httpx>=0.27", "build>=1.2"]
+exe = ["pyinstaller>=6.10"]                 # build Decompress.exe
 
 [project.scripts]
 decompress = "decompress.__main__:main"
+decompress-launch = "decompress.launcher:main"
 decompress-hub = "progress_hub.server:main"
 decompress-hub-client = "progress_hub.hub_client:main"
 

@@ -68,5 +68,5 @@ Overall: **24/43 done (56%)**. Legend: `[x]` done · `[~]` in progress · `[ ]` 
 - [x] **P7.3** Install package: wheel, build/test/rebuild scripts (Windows + Linux), Blender add-on — _wheel smoke-tested in a clean venv; add-on tested in bpy 5.2_
 - [ ] **P7.4** Web UI auth + HTTPS
 - [x] **P7.5** CI: build + test on Windows and Linux — _Windows + Linux, Python 3.11/3.12 all green_
-- [ ] **P7.6** Standalone Windows installer (.exe, no Python needed)
+- [~] **P7.6** Standalone Windows app: Decompress.exe + installer with shortcuts — _built + smoke-tested on Linux incl. MediaPipe; Windows CI pending_
 - [ ] **P7.7** Docker image

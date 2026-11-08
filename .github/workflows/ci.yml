@@ -32,3 +32,48 @@ jobs:
         with:
           name: decompress-dist
           path: dist/
+
+  windows-app:
+    # Standalone Decompress.exe + DecompressSetup.exe, then a real silent install to prove shortcuts and the app work.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+      - name: Build exe (with MediaPipe) and smoke-test it
+        shell: pwsh
+        run: .\scripts\build.ps1 exe -Extras mediapipe -Python python
+      - name: Build installer
+        shell: pwsh
+        run: .\scripts\build.ps1 installer -Extras mediapipe -Python python
+      - name: Test the shortcut command
+        shell: pwsh
+        run: |
+          .\scripts\build.ps1 shortcut -Extras mediapipe -Python python
+          $lnk = Join-Path ([Environment]::GetFolderPath("Desktop")) "Decompress.lnk"
+          if (-not (Test-Path $lnk)) { throw "shortcut missing: $lnk" }
+          $target = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk).TargetPath
+          Write-Host "shortcut -> $target"
+          if (-not (Test-Path $target)) { throw "shortcut target missing" }
+          Remove-Item $lnk
+      - name: Silent install and check
+        shell: pwsh
+        run: |
+          $setup = (Get-ChildItem dist\DecompressSetup-*.exe).FullName
+          Start-Process $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/CURRENTUSER", "/TASKS=desktopicon", "/NORESTART" -Wait
+          $exe = Join-Path $env:LOCALAPPDATA "Programs\Decompress\Decompress.exe"
+          if (-not (Test-Path $exe)) { throw "not installed at $exe" }
+          & $exe --version
+          if ($LASTEXITCODE -ne 0) { throw "installed exe failed" }
+          $desk = Join-Path ([Environment]::GetFolderPath("Desktop")) "Decompress.lnk"
+          $menu = Join-Path ([Environment]::GetFolderPath("Programs")) "Decompress\Decompress.lnk"
+          foreach ($l in @($desk, $menu)) { if (-not (Test-Path $l)) { throw "missing shortcut $l" }; Write-Host "ok: $l" }
+          python scripts\smoke_test.py --exe $exe
+          if ($LASTEXITCODE -ne 0) { throw "installed app smoke test failed" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DecompressSetup
+          path: dist/DecompressSetup-*.exe

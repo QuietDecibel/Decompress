@@ -328,9 +328,9 @@
     {
       "id": "P7.6",
       "phase": "P7",
-      "title": "Standalone Windows installer (.exe, no Python needed)",
-      "status": "todo",
-      "note": ""
+      "title": "Standalone Windows app: Decompress.exe + installer with shortcuts",
+      "status": "in_progress",
+      "note": "built + smoke-tested on Linux incl. MediaPipe; Windows CI pending"
     },
     {
       "id": "P7.7",

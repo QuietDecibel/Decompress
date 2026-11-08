@@ -1,4 +1,5 @@
-"""Smoke-test an *installed* Decompress (run with the venv's python that has the wheel installed).
+"""Smoke-test an *installed* Decompress (run with the venv's python that has the wheel installed),
+or a built executable:  python scripts/smoke_test.py --exe dist/Decompress/Decompress.exe
 
 Checks the console entry points work and that packaged data files (web UI, hub dashboard,
 Blender add-on) made it into the install — the things unit tests run from source can't catch.
@@ -16,6 +17,8 @@ import zipfile
 from pathlib import Path
 
 PY = sys.executable
+EXE = sys.argv[sys.argv.index("--exe") + 1] if "--exe" in sys.argv else None
+CMD = [str(Path(EXE).resolve())] if EXE else [PY, "-m", "decompress"]
 OK = 0
 
 
@@ -26,7 +29,7 @@ def check(name: str, cond: bool, detail: str = "") -> None:
 
 
 def run(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run([PY, "-m", "decompress", *args], capture_output=True, text=True, timeout=120)
+    return subprocess.run([*CMD, *args], capture_output=True, text=True, timeout=180)
 
 
 def free_port() -> int:
@@ -46,7 +49,7 @@ def get(url: str, tries: int = 60) -> tuple[int, bytes]:
 
 
 def serve(args: list[str], url: str, env: dict) -> tuple[int, bytes, subprocess.Popen]:
-    p = subprocess.Popen([PY, "-m", "decompress", *args], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    p = subprocess.Popen([*CMD, *args], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     status, body = get(url)
     return status, body, p
 
@@ -55,10 +58,11 @@ def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="decompress-smoke-"))
     os.chdir(tmp)                                   # make sure nothing is imported from the source tree
     env = {**os.environ, "DECOMPRESS_HOME": str(tmp / "data"), "HUB_DATA": str(tmp / "hub.json")}
-    print(f"Smoke test using {PY}")
+    print(f"Smoke test using {' '.join(CMD)}")
 
-    import decompress
-    check("package imported from site-packages", "site-packages" in decompress.__file__, decompress.__file__)
+    if not EXE:
+        import decompress
+        check("package imported from site-packages", "site-packages" in decompress.__file__, decompress.__file__)
 
     r = run("--version")
     check("decompress --version", r.returncode == 0 and r.stdout.startswith("decompress "), r.stderr)
@@ -70,7 +74,7 @@ def main() -> int:
 
     port = free_port()
     status, body, p = serve(["hub", "--port", str(port)], f"http://127.0.0.1:{port}/", env)
-    check("hub serves dashboard", status == 200 and b"Claude Progress Hub" in body, p.stderr and "")
+    check("hub serves dashboard", status == 200 and b"Claude Progress Hub" in body)
     p.terminate(); p.wait(10)
 
     port = free_port()
@@ -81,6 +85,21 @@ def main() -> int:
     status, _ = get(f"http://127.0.0.1:{port}/api/queue", tries=3)
     check("app API responds", status == 200)
     p.terminate(); p.wait(10)
+
+    if EXE:   # one-click mode: no arguments -> hub + app, prints the app URL
+        hub_port = free_port()
+        p = subprocess.Popen([*CMD, "--no-browser"], env={**env, "DECOMPRESS_HUB_PORT": str(hub_port)},
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        url = ""
+        for line in p.stdout:
+            if line.strip().startswith("App"):
+                url = line.split()[-1]
+                break
+        status, body = get(url + "/") if url else (0, b"")
+        check("launcher starts app", status == 200 and b"Decompress" in body, url or "no URL printed")
+        status, body = get(f"http://127.0.0.1:{hub_port}/", tries=10)
+        check("launcher starts hub", status == 200 and b"Claude Progress Hub" in body)
+        p.terminate(); p.wait(10)
 
     print("SMOKE TEST " + ("PASSED" if OK == 0 else f"FAILED ({OK} check(s))"))
     return 1 if OK else 0

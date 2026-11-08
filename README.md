@@ -46,10 +46,38 @@ build rebuild
 | `rebuild` | All of the above, starting from `clean` |
 | `clean` | Deletes `build/`, `dist/` and caches (keeps `.venv` and your data) |
 | `run` / `hub` | Starts the app (http://127.0.0.1:8000) or the Progress Hub (http://127.0.0.1:8765) |
+| `exe` | Builds the standalone app `dist\Decompress\Decompress.exe` (Python not needed) and smoke-tests it |
+| `installer` | Builds `dist\DecompressSetup-<ver>.exe`, which adds Start Menu and Desktop shortcuts and an uninstaller (Windows; needs Inno Setup) |
+| `shortcut` | Adds Desktop and Start Menu shortcuts for this checkout. They point to the exe if built, otherwise to the venv |
+| `release` | `rebuild` + `exe` + `installer`: everything |
 
 Change the optional extras with `-Extras all,dev` (Windows) or `EXTRAS=all,dev` (Linux). `all` adds YOLO.
 On Windows, if PowerShell blocks the script, use `build.cmd` (it bypasses the policy for that run only), or run
 `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once.
+
+### Desktop app, exe and shortcuts (Windows)
+
+```bash
+build exe
+```
+
+```bash
+build shortcut
+```
+
+`Decompress.exe` (or the shortcut) starts the app and the Progress Hub, then opens your browser. Closing its
+console window stops both. Your data is kept in `%USERPROFILE%\Decompress`. The exe also accepts any CLI
+command, for example `Decompress.exe analyze clip.mp4`.
+
+To make an installer you can copy to another PC, install Inno Setup once with `winget install JRSoftware.InnoSetup`, then run:
+
+```bash
+build installer
+```
+
+This writes `dist\DecompressSetup-0.1.0.exe`. It installs per user (no admin needed) and adds Start Menu and
+Desktop shortcuts plus an uninstaller. CI builds the same installer on every push; download it from the
+**DecompressSetup** artifact on the Actions run. The app folder is about 450 MB, mostly OpenCV and MediaPipe.
 
 **Install the built package on another machine:**
 
