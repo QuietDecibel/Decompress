@@ -43,6 +43,12 @@ jobs:
           python-version: "3.12"
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress
+      - name: build.cmd menu under Windows PowerShell 5.1 (auto-detects Python, sets up, runs tests)
+        shell: cmd
+        run: build.cmd -Choice 3 -Extras mediapipe,dev
+      - name: build.cmd help
+        shell: cmd
+        run: build.cmd help
       - name: Build exe (with MediaPipe) and smoke-test it
         shell: pwsh
         run: .\scripts\build.ps1 exe -Extras mediapipe -Python python

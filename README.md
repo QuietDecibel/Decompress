@@ -23,7 +23,8 @@ Full roadmap with status: [PLAN.md](PLAN.md).
 Everything is driven by one script: `build.cmd` / `scripts\build.ps1` on Windows, `scripts/build.sh` on Linux and macOS.
 Python 3.10–3.12 is recommended (MediaPipe's supported range).
 
-**Windows** (in `C:\GitHub\Decompress`, from cmd or PowerShell):
+**Windows:** double-click **`build.cmd`** in the top folder (`C:\GitHub\Decompress\build.cmd`) to get a menu.
+Pick **1** the first time; it finds Python 3.10–3.12 and installs everything. Or run a command directly from cmd or PowerShell:
 
 ```bash
 build rebuild

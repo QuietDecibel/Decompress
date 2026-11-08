@@ -1,34 +1,64 @@
 <#
-Build / test / rebuild Decompress on Windows (PowerShell 5+ or 7+).
+.SYNOPSIS
+Build, test, rebuild and package Decompress on Windows.
 
-  .\scripts\build.ps1 setup     create .venv and install the app in editable mode (+ dev tools, MediaPipe)
-  .\scripts\build.ps1 test      run the test suite
-  .\scripts\build.ps1 build     build the wheel + sdist + Blender add-on into dist\
-  .\scripts\build.ps1 verify    install the built wheel into a clean venv and smoke-test it
-  .\scripts\build.ps1 rebuild   clean -> setup -> test -> build -> verify   (the full cycle)
-  .\scripts\build.ps1 clean     remove build outputs (keeps .venv and your data)
-  .\scripts\build.ps1 exe       build the standalone app: dist\Decompress\Decompress.exe (no Python needed), then smoke-test it
-  .\scripts\build.ps1 installer build dist\DecompressSetup-<ver>.exe (Start Menu + Desktop shortcuts, uninstaller)
-  .\scripts\build.ps1 shortcut  add Desktop + Start Menu shortcuts for this checkout (to the exe if built, else the venv)
-  .\scripts\build.ps1 release   rebuild + exe + installer   (everything)
-  .\scripts\build.ps1 run       start the app      (http://127.0.0.1:8000)
-  .\scripts\build.ps1 hub       start the hub      (http://127.0.0.1:8765)
+.DESCRIPTION
+Double-click build.cmd (in the repo's top folder) to get a menu, or run a command directly:
 
-Options: -Extras "all,dev" (default "mediapipe,dev"), -Python "py -3.12" (default: py launcher, else python).
-If scripts are blocked, run once:  Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+  build setup      install everything into .venv (first time, or after pulling changes)
+  build run        start Decompress (opens your browser)
+  build test       run the test suite
+  build rebuild    clean -> setup -> test -> build -> verify (the full cycle)
+  build exe        build dist\Decompress\Decompress.exe (no Python needed) and smoke-test it
+  build installer  build dist\DecompressSetup-<ver>.exe (needs Inno Setup)
+  build shortcut   add Desktop + Start Menu shortcuts
+  build release    rebuild + exe + installer
+  build build | verify | clean | hub
+
+Options: -Extras "all,dev" (default "mediapipe,dev"), -Python "py -3.12".
 #>
 param(
-    [Parameter(Position = 0)][ValidateSet("setup", "test", "build", "verify", "rebuild", "clean", "exe", "installer", "shortcut", "release", "run", "hub", "help")]
-    [string]$Command = "help",
+    [Parameter(Position = 0)]
+    [ValidateSet("menu", "setup", "test", "build", "verify", "rebuild", "clean", "exe", "installer", "shortcut",
+                 "release", "run", "hub", "help")]
+    [string]$Command = "",
     [string]$Extras = "mediapipe,dev",
-    [string]$Python = ""
+    [string]$Python = "",
+    [string]$Choice = "",       # pick a menu item without typing (used by CI)
+    [switch]$NoPause
 )
 $ErrorActionPreference = "Stop"
 Set-Location (Split-Path -Parent $PSScriptRoot)
 
-if (-not $Python) { $Python = if (Get-Command py -ErrorAction SilentlyContinue) { "py -3" } else { "python" } }
 $Venv = ".venv"
 $VPy = Join-Path $Venv "Scripts\python.exe"
+$Interactive = ($Command -eq "" -or $Command -eq "menu")
+
+function Get-BasePython {
+    # Returns the command (string, may contain an argument like "py -3.12") used to create virtual environments.
+    if ($script:Python) { return $script:Python }
+    $found = @()
+    $cands = @()
+    if (Get-Command py -ErrorAction SilentlyContinue) { $cands += @("py -3.12", "py -3.11", "py -3.10", "py -3") }
+    if (Get-Command python -ErrorAction SilentlyContinue) { $cands += "python" }
+    foreach ($c in $cands) {
+        $parts = $c.Split(" ")
+        try {
+            $v = & $parts[0] @($parts | Select-Object -Skip 1) -c "import sys; print('%d.%d' % sys.version_info[:2])" 2>$null
+        } catch { continue }
+        if ($LASTEXITCODE -eq 0 -and $v -match '^3\.(\d+)$') {
+            $minor = [int]$Matches[1]
+            if ($minor -ge 10 -and $minor -le 12) { $script:Python = $c; Write-Host "Using Python $v ($c)"; return $c }
+            if ($minor -ge 10) { $found += , @($c, $v) }
+        }
+    }
+    if ($found.Count) {
+        $script:Python = $found[0][0]
+        Write-Host "Using Python $($found[0][1]) ($($found[0][0])). Python 3.12 is recommended for MediaPipe." -ForegroundColor Yellow
+        return $script:Python
+    }
+    throw "Python 3.10-3.12 was not found. Install it with:  winget install Python.Python.3.12   (or from python.org), then run this again."
+}
 
 function Step($msg) { Write-Host "`n==> $msg" -ForegroundColor Cyan }
 function Invoke-Checked {
@@ -37,7 +67,7 @@ function Invoke-Checked {
     if ($LASTEXITCODE -ne 0) { throw "Command failed ($LASTEXITCODE): $Exe $($Arguments -join ' ')" }
 }
 function New-Venv($path) {
-    $parts = $Python.Split(" ")
+    $parts = (Get-BasePython).Split(" ")
     $exe = $parts[0]; $rest = @($parts | Select-Object -Skip 1)
     Invoke-Checked $exe ($rest + @("-m", "venv", $path))
 }
@@ -49,8 +79,10 @@ function Setup {
     Invoke-Checked $VPy @("-m", "pip", "install", "-q", "-e", ".[$Extras]")
     Invoke-Checked $VPy @("-m", "decompress", "--version")
 }
-function Test { Step "Running tests"; Invoke-Checked $VPy @("-m", "pytest", "-q") }
+function Ensure-Venv { if (-not (Test-Path $VPy)) { Setup } }
+function Test { Ensure-Venv; Step "Running tests"; Invoke-Checked $VPy @("-m", "pytest", "-q") }
 function Build {
+    Ensure-Venv
     Step "Building wheel + sdist"
     Invoke-Checked $VPy @("-m", "build", "--outdir", "dist", ".")
     Invoke-Checked $VPy @("-m", "decompress", "blender-addon", "--out", "dist\decompress_blender_addon.zip")
@@ -68,7 +100,7 @@ function Verify {
 }
 function Exe {
     Step "Building standalone Decompress.exe with PyInstaller"
-    if (-not (Test-Path $VPy)) { Setup }
+    Ensure-Venv
     Invoke-Checked $VPy @("-m", "pip", "install", "-q", "-e", ".[$Extras,exe]")
     Invoke-Checked $VPy @("packaging\make_icon.py")
     Invoke-Checked $VPy @("-m", "PyInstaller", "--noconfirm", "--clean", "--log-level", "WARN",
@@ -123,18 +155,61 @@ function Clean {
         Remove-Item -Recurse -Force
 }
 
-switch ($Command) {
-    "setup"   { Setup }
-    "test"    { Test }
-    "build"   { Build }
-    "verify"  { Verify }
-    "rebuild" { Clean; Setup; Test; Build; Verify; Step "Rebuild complete: dist\ is ready" }
-    "clean"   { Clean }
-    "exe"     { Exe }
-    "installer" { Installer }
-    "shortcut" { Shortcut }
-    "release" { Clean; Setup; Test; Build; Verify; Exe; Installer; Step "Release ready in dist\" }
-    "run"     { & $VPy -m decompress serve }
-    "hub"     { & $VPy -m decompress hub }
-    default   { Get-Help $PSCommandPath -Detailed | Out-String | Write-Host }
+function Run {
+    Ensure-Venv
+    Step "Starting Decompress (close this window to stop it)"
+    & $VPy -m decompress.launcher
 }
+function Hub {
+    Ensure-Venv
+    & $VPy -m decompress hub
+}
+function Show-Help { Get-Help $PSCommandPath -Detailed | Out-String | Write-Host }
+
+$Menu = [ordered]@{
+    "1" = @("First-time setup (install everything)", "setup")
+    "2" = @("Run Decompress", "run")
+    "3" = @("Run the tests", "test")
+    "4" = @("Rebuild: clean, setup, test, build, verify", "rebuild")
+    "5" = @("Build Decompress.exe", "exe")
+    "6" = @("Build the installer (DecompressSetup.exe)", "installer")
+    "7" = @("Create Desktop + Start Menu shortcuts", "shortcut")
+    "8" = @("Everything: rebuild + exe + installer", "release")
+}
+
+function Invoke-Command-Name($name) {
+    switch ($name) {
+        "setup"     { Setup }
+        "test"      { Test }
+        "build"     { Build }
+        "verify"    { Verify }
+        "rebuild"   { Clean; Setup; Test; Build; Verify; Step "Rebuild complete: dist\ is ready" }
+        "clean"     { Clean }
+        "exe"       { Exe }
+        "installer" { Installer }
+        "shortcut"  { Shortcut }
+        "release"   { Clean; Setup; Test; Build; Verify; Exe; Installer; Step "Release ready in dist\" }
+        "run"       { Run }
+        "hub"       { Hub }
+        default     { Show-Help }
+    }
+}
+
+$failed = $false
+try {
+    if ($Interactive) {
+        Write-Host "`nDecompress build tools  ($((Get-Location).Path))" -ForegroundColor Cyan
+        foreach ($k in $Menu.Keys) { Write-Host ("  {0}) {1}" -f $k, $Menu[$k][0]) }
+        Write-Host "  Q) Quit"
+        $pick = if ($Choice) { $Choice } else { Read-Host "`nChoose" }
+        if ($Menu.Contains($pick)) { Invoke-Command-Name $Menu[$pick][1]; Step "Done" }
+        elseif ($pick -notmatch '^[qQ]?$') { Write-Host "Unknown choice '$pick'" -ForegroundColor Yellow }
+    } else {
+        Invoke-Command-Name $Command
+    }
+} catch {
+    $failed = $true
+    Write-Host "`nFAILED: $($_.Exception.Message)" -ForegroundColor Red
+}
+if ($Interactive -and -not $NoPause -and -not $Choice) { Read-Host "`nPress Enter to close" | Out-Null }
+if ($failed) { exit 1 }

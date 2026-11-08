@@ -1,4 +1,5 @@
 @echo off
-rem Double-click or run "build rebuild" from cmd.exe. Forwards to scripts\build.ps1.
+rem Double-click for a menu, or run e.g.  build rebuild   from cmd / PowerShell in this folder.
+rem Forwards to scripts\build.ps1 (bypassing the PowerShell script policy for this run only).
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\build.ps1" %*
-if "%~1"=="" pause
+exit /b %ERRORLEVEL%
