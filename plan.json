@@ -329,8 +329,8 @@
       "id": "P7.6",
       "phase": "P7",
       "title": "Standalone Windows app: Decompress.exe + installer with shortcuts",
-      "status": "in_progress",
-      "note": "built + smoke-tested on Linux incl. MediaPipe; Windows CI pending"
+      "status": "done",
+      "note": "built and install-tested on Windows CI (silent install, shortcuts, smoke test)"
     },
     {
       "id": "P7.7",
