@@ -2,10 +2,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import shutil
+import threading
+import uuid
 from pathlib import Path
 
+import cv2
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel
@@ -17,6 +21,8 @@ from ..jobs import JobQueue
 from ..pipeline import Analyzer
 from ..sources import Source
 from ..vision import available_backends, get_backend
+from ..motion import load_motion
+from ..training import clip_keypoints, leave_one_out_accuracy, load_clips
 from ..vision.movement import MovementClassifier
 
 ROOT = Path(os.environ.get("DECOMPRESS_HOME", Path.cwd() / "decompress_data"))
@@ -24,6 +30,7 @@ UPLOADS = ROOT / "uploads"
 STATIC = Path(__file__).parent / "static"
 BLENDER_SCRIPT = Path(__file__).resolve().parents[1] / "blender" / "import_motion.py"
 CLASSIFIER_PATH = ROOT / "models" / "movement.json"
+LABELS_PATH = ROOT / "models" / "labels.json"
 
 
 class NewSource(BaseModel):
@@ -63,6 +70,14 @@ class NewCamera(BaseModel):
     remember: bool = True         # save the camera (credentials go to the OS keyring / encrypted store)
     autostart: bool = True
     start: bool = True
+
+
+class LabelClip(BaseModel):
+    motion: str
+    track: int
+    start: int
+    end: int
+    label: str
 
 
 class Ptz(BaseModel):
@@ -311,14 +326,122 @@ def create_app(backend: str | None = None, hub_project: str | None = None) -> Fa
         return FileResponse(BLENDER_SCRIPT, filename="import_motion.py")
 
     # live classifier reload (after `python -m decompress train`)
+    def _push_classifier(clf) -> None:
+        for s in sources.values():
+            if s._analyzer:
+                s._analyzer.classifier = clf
+
     @app.post("/api/classifier/reload")
     def reload_classifier():
         if not CLASSIFIER_PATH.exists():
             raise HTTPException(404, "no trained classifier; run `python -m decompress train`")
         clf = MovementClassifier.load(CLASSIFIER_PATH)
-        for s in sources.values():
-            if s._analyzer:
-                s._analyzer.classifier = clf
+        _push_classifier(clf)
         return {"loaded": True, "labels": sorted(set(clf.y))}
+
+    # ---- labelling + training -----------------------------------------------
+    def _inside_root(path: str) -> Path:
+        p = Path(path).resolve()
+        if ROOT.resolve() not in p.parents or not p.is_file():
+            raise HTTPException(404, "not found")
+        return p
+
+    @app.get("/api/motions")
+    def list_motions():
+        out = []
+        for f in sorted((ROOT / "outputs").glob("*.motion.json"), key=lambda p: -p.stat().st_mtime):
+            try:
+                m = load_motion(f)
+            except Exception:
+                continue
+            src = m.get("source", "")
+            out.append({"path": str(f), "name": f.name, "source": Path(src).name if Path(src).is_file() else src,
+                        "has_video": Path(src).is_file(), "fps": m.get("fps"), "image_size": m.get("image_size"),
+                        "tracks": [{"id": t["id"], "label": t.get("label", "person"), "frames": len(t["frames"]),
+                                    "first": t["frames"][0]["f"], "last": t["frames"][-1]["f"]} for t in m["tracks"]]})
+        return out
+
+    @app.get("/api/motions/data")
+    def motion_data(path: str):
+        return load_motion(_inside_root(path))
+
+    frame_caps: dict[str, cv2.VideoCapture] = {}
+    frame_lock = threading.Lock()
+
+    @app.get("/api/motions/frame")
+    def motion_frame(path: str, f: int):
+        src = Path(load_motion(_inside_root(path)).get("source", ""))
+        if not src.is_file():
+            raise HTTPException(404, "source video not available (live recording)")
+        with frame_lock:
+            cap = frame_caps.get(str(src))
+            if cap is None:
+                cap = frame_caps[str(src)] = cv2.VideoCapture(str(src))
+            cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, f))
+            ok, frame = cap.read()
+        if not ok:
+            raise HTTPException(404, "frame out of range")
+        h, w = frame.shape[:2]
+        if w > 960:
+            frame = cv2.resize(frame, (960, round(h * 960 / w)))
+        return Response(cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])[1].tobytes(), media_type="image/jpeg")
+
+    def _labels() -> list[dict]:
+        return json.loads(LABELS_PATH.read_text()) if LABELS_PATH.exists() else []
+
+    def _save_labels(items: list[dict]) -> None:
+        LABELS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        LABELS_PATH.write_text(json.dumps(items, indent=1))
+
+    @app.get("/api/labels")
+    def get_labels():
+        return _labels()
+
+    @app.post("/api/labels")
+    def add_label(body: LabelClip):
+        _inside_root(body.motion)
+        if body.end - body.start < 3 or not body.label.strip():
+            raise HTTPException(400, "a clip needs a label and at least 3 frames")
+        try:
+            n = len(clip_keypoints(load_motion(body.motion), body.track, body.start, body.end))
+        except KeyError:
+            raise HTTPException(400, f"track {body.track} is not in this recording")
+        if n < 3:
+            raise HTTPException(400, f"track #{body.track} only appears in {n} frame(s) of that range; pick a range where it is visible")
+        item = {"id": uuid.uuid4().hex[:8], **body.model_dump(), "label": body.label.strip()}
+        _save_labels(_labels() + [item])
+        return item
+
+    @app.delete("/api/labels/{lid}")
+    def delete_label(lid: str):
+        _save_labels([x for x in _labels() if x.get("id") != lid])
+        return {"removed": lid}
+
+    @app.post("/api/train")
+    def train():
+        items = _labels()
+        try:
+            seqs, ys = load_clips(items)
+        except (KeyError, FileNotFoundError, ValueError) as e:
+            raise HTTPException(400, f"cannot load labelled clips: {e}")
+        if len(set(ys)) < 2:
+            raise HTTPException(400, "label clips of at least two different movements first")
+        clf = MovementClassifier().fit(seqs, ys)
+        CLASSIFIER_PATH.parent.mkdir(parents=True, exist_ok=True)
+        clf.save(CLASSIFIER_PATH)
+        _push_classifier(clf)
+        acc = leave_one_out_accuracy(seqs, ys)
+        return {"clips": len(seqs), "labels": {y: ys.count(y) for y in sorted(set(ys))},
+                "accuracy": None if acc is None else round(acc, 3)}
+
+    @app.get("/api/predict")
+    def predict(path: str, track: int, frame: int):
+        if not CLASSIFIER_PATH.exists():
+            return {"label": "", "confidence": 0}
+        seq = clip_keypoints(load_motion(_inside_root(path)), track, frame - 30, frame + 1)
+        if len(seq) < 5:
+            return {"label": "", "confidence": 0}
+        label, conf = MovementClassifier.load(CLASSIFIER_PATH).predict(seq)
+        return {"label": label, "confidence": round(conf, 2)}
 
     return app

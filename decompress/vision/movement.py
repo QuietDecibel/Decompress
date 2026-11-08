@@ -114,7 +114,10 @@ class MovementClassifier:
             return "", 0.0
         f = (pose_features(seq) - self.mu) / self.sd
         d = np.linalg.norm((self.X - self.mu) / self.sd - f, axis=1)
-        idx = np.argsort(d)[: self.k]
+        # Cap k by the smallest class so a movement with few examples isn't outvoted by a big one.
+        counts = {y: self.y.count(y) for y in set(self.y)}
+        k = max(1, min(self.k, min(counts.values())))
+        idx = np.argsort(d)[:k]
         votes: dict[str, int] = {}
         for i in idx:
             votes[self.y[i]] = votes.get(self.y[i], 0) + 1

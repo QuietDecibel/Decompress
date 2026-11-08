@@ -26,16 +26,33 @@ def clip_keypoints(motion: dict, track: int, start: int | None = None, end: int 
 
 def train_from_labels(labels_path: str | Path, k: int = 5) -> tuple[MovementClassifier, int]:
     labels = json.loads(Path(labels_path).read_text())
-    base = Path(labels_path).parent
+    seqs, ys = load_clips(labels, Path(labels_path).parent)
+    if not seqs:
+        raise ValueError("no usable labelled clips")
+    return MovementClassifier(k=k).fit(seqs, ys), len(seqs)
+
+
+def load_clips(items: list[dict], base: Path | None = None) -> tuple[list[list[np.ndarray]], list[str]]:
     cache: dict[str, dict] = {}
     seqs, ys = [], []
-    for item in labels:
-        mp = item["motion"] if Path(item["motion"]).is_absolute() or Path(item["motion"]).exists() else str(base / item["motion"])
+    for item in items:
+        mp = item["motion"]
+        if base is not None and not Path(mp).is_absolute() and not Path(mp).exists():
+            mp = str(base / mp)
         motion = cache.setdefault(mp, load_motion(mp))
         seq = clip_keypoints(motion, item["track"], item.get("start"), item.get("end"))
         if len(seq) >= 3:
             seqs.append(seq)
             ys.append(item["label"])
-    if not seqs:
-        raise ValueError("no usable labelled clips")
-    return MovementClassifier(k=k).fit(seqs, ys), len(seqs)
+    return seqs, ys
+
+
+def leave_one_out_accuracy(seqs, ys, k: int = 5) -> float | None:
+    """Hold out each clip in turn, train on the rest, predict it. None if any label has a single clip."""
+    if len(set(ys)) < 2 or min(ys.count(y) for y in set(ys)) < 2:
+        return None
+    hits = 0
+    for i in range(len(seqs)):
+        clf = MovementClassifier(k=k).fit(seqs[:i] + seqs[i + 1:], ys[:i] + ys[i + 1:])
+        hits += clf.predict(seqs[i])[0] == ys[i]
+    return hits / len(seqs)

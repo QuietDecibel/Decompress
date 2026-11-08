@@ -84,6 +84,10 @@ def main() -> int:
     check("app serves Blender importer", status == 200 and b"bl_info" in body)
     status, _ = get(f"http://127.0.0.1:{port}/api/queue", tries=3)
     check("app API responds", status == 200)
+    status, body = get(f"http://127.0.0.1:{port}/api/cameras", tries=3)
+    check("credential store loads", status == 200 and b"secret_store" in body)
+    status, _ = get(f"http://127.0.0.1:{port}/api/motions", tries=3)
+    check("training API responds", status == 200)
     p.terminate(); p.wait(10)
 
     if EXE:   # one-click mode: no arguments -> hub + app, prints the app URL

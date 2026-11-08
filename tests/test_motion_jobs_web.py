@@ -159,3 +159,42 @@ def test_source_redacts_credentials(client):
     r = client.post("/api/sources", json={"url": "rtsp://admin:hunter2@127.0.0.1:1/x", "analyze": False}).json()
     assert "hunter2" not in json.dumps(r)
     client.delete(f"/api/sources/{r['id']}")
+
+
+def test_labelling_and_training_api(client, tmp_path):
+    root = tmp_path / "home"
+    video = make_video(tmp_path / "moves.mp4", n=40)
+    q = JobQueue(root, analyzer_factory=lambda: Analyzer(backend=FakePose()))
+    job = q.add(str(video), write_video=False)
+    q.run_job(job)
+    motion = job["outputs"]["motion"]
+
+    listing = client.get("/api/motions").json()
+    m = next(x for x in listing if x["path"] == motion)
+    assert m["has_video"] and m["tracks"][0]["frames"] == 40
+    assert client.get("/api/motions/data", params={"path": motion}).json()["tracks"][0]["id"] == 1
+    r = client.get("/api/motions/frame", params={"path": motion, "f": 5})
+    assert r.status_code == 200 and r.headers["content-type"] == "image/jpeg"
+    assert client.get("/api/motions/data", params={"path": "/etc/passwd"}).status_code == 404
+
+    assert client.post("/api/labels", json={"motion": motion, "track": 1, "start": 0, "end": 2, "label": "x"}).status_code == 400
+    assert client.post("/api/labels", json={"motion": motion, "track": 1, "start": 100, "end": 200, "label": "x"}).status_code == 400
+    assert client.post("/api/labels", json={"motion": motion, "track": 9, "start": 0, "end": 20, "label": "x"}).status_code == 400
+    for start, end, label in [(0, 5, "arms down"), (5, 10, "arms down"), (15, 27, "arms up"), (27, 40, "arms up")]:
+        assert client.post("/api/labels", json={"motion": motion, "track": 1, "start": start, "end": end,
+                                                "label": label}).status_code == 200
+    clips = client.get("/api/labels").json()
+    assert len(clips) == 4
+    client.delete(f"/api/labels/{clips[0]['id']}")
+    r = client.post("/api/train")
+    assert r.status_code == 200, r.text
+    assert r.json()["labels"] == {"arms down": 1, "arms up": 2} and r.json()["accuracy"] is None   # 1 clip of "down"
+    client.post("/api/labels", json={"motion": motion, "track": 1, "start": 0, "end": 5, "label": "arms down"})
+    r = client.post("/api/train").json()
+    assert r["clips"] == 4 and r["accuracy"] == 1.0
+    assert client.get("/api/predict", params={"path": motion, "track": 1, "frame": 39}).json()["label"] == "arms up"
+    assert client.get("/api/backends").json()["classifier"] is True
+
+
+def test_train_needs_two_movements(client, tmp_path):
+    assert client.post("/api/train").status_code == 400

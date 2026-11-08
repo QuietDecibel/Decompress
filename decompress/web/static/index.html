@@ -38,6 +38,14 @@
   .ptz { position:absolute; right:8px; bottom:8px; display:grid; grid-template-columns:repeat(3,30px); gap:3px; opacity:.85; }
   .ptz button { width:30px; height:30px; padding:0; font-size:14px; }
   h2 { font-size:15px; margin:22px 0 8px; }
+  .train { display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:16px; }
+  @media (max-width:900px) { .train { grid-template-columns:1fr; } }
+  #tCanvas { width:100%; background:#000; border-radius:8px; display:block; aspect-ratio:16/9; }
+  .tl { position:relative; height:10px; background:var(--line); border-radius:5px; margin:10px 0 4px; }
+  .tl span { position:absolute; top:0; bottom:0; background:rgba(76,154,255,.55); border-radius:5px; }
+  input[type=range] { width:100%; }
+  .pill { display:inline-block; background:var(--line); border-radius:10px; padding:1px 8px; font-size:12px; margin:2px; }
+  .predict { font-size:13px; min-height:20px; }
 </style>
 </head>
 <body>
@@ -47,6 +55,7 @@
     <button data-tab="grid" class="on">Multi-view</button>
     <button data-tab="discover">Discover cameras</button>
     <button data-tab="queue">Video queue</button>
+    <button data-tab="train">Train movements</button>
   </nav>
   <div class="layout">Layout
     <select id="cols"><option value="1">1×</option><option value="2" selected>2×2</option><option value="3">3×3</option><option value="4">4×4</option></select>
@@ -88,6 +97,40 @@
 
     <h2>Saved cameras</h2>
     <table><thead><tr><th>Name</th><th>Stream</th><th>PTZ</th><th>Starts with app</th><th></th></tr></thead><tbody id="saved"></tbody></table>
+  </section>
+
+  <section id="train" class="tab">
+    <p class="muted" style="margin-top:0">Pick a recording, scrub to a movement, mark its start and end, name it, and add it as a clip.
+      With clips of two or more movements, press <b>Train</b>. The classifier then runs live in every camera view.
+      Record more motion from the Multi-view tab (● Record motion), or drop videos into the queue.</p>
+    <div class="train">
+      <div>
+        <div class="row">
+          <select id="tMotion" style="flex:1;min-width:200px"></select>
+          <select id="tTrack"></select>
+          <button class="b" id="tPlay">▶ Play</button>
+        </div>
+        <canvas id="tCanvas" width="960" height="540"></canvas>
+        <input type="range" id="tSlider" min="0" max="0" value="0">
+        <div class="tl" id="tTimeline"></div>
+        <div class="row" style="justify-content:space-between">
+          <span class="muted" id="tPos">frame 0</span>
+          <span class="predict" id="tPredict"></span>
+        </div>
+        <div class="row">
+          <button class="b" id="tIn">[ Set start</button><button class="b" id="tOut">Set end ]</button>
+          <span class="muted" id="tRange">start — · end —</span>
+          <input id="tLabel" list="tLabels" placeholder="movement name, e.g. waving" style="flex:1;min-width:160px">
+          <datalist id="tLabels"></datalist>
+          <button class="b primary" id="tAdd">Add clip</button>
+        </div>
+      </div>
+      <div>
+        <div class="row"><b style="flex:1">Labelled clips</b><button class="b primary" id="tTrain">Train</button></div>
+        <div id="tSummary" class="muted" style="margin-bottom:8px"></div>
+        <table><tbody id="tClips"></tbody></table>
+      </div>
+    </div>
   </section>
 
   <section id="queue" class="tab">
@@ -226,6 +269,138 @@ async function refreshSaved() {
     api(`/api/cameras/${b.dataset.del}`, { method: "DELETE" }).then(() => { refreshSaved(); refresh(); }));
 }
 refreshSaved();
+
+// ---- train ------------------------------------------------------------
+const T = { motions: [], m: null, data: null, track: null, f: 0, inF: null, outF: null, playing: false, img: new Image(), imgF: -1, loading: false };
+const BONES = [[5,6],[11,12],[5,11],[6,12],[5,7],[7,9],[6,8],[8,10],[11,13],[13,15],[12,14],[14,16],[0,1],[0,2],[1,3],[2,4]];
+const hue = id => `hsl(${(id * 222.5) % 360} 80% 60%)`;
+async function loadMotions() {
+  T.motions = await api("/api/motions");
+  const cur = $("#tMotion").value;
+  $("#tMotion").innerHTML = T.motions.map(m => `<option value="${esc(m.path)}">${esc(m.source || m.name)} · ${m.tracks.length} track(s)</option>`).join("")
+    || `<option value="">No recordings yet: record a view or analyse a video</option>`;
+  if (cur && T.motions.find(m => m.path === cur)) $("#tMotion").value = cur;
+  if (!T.m || T.m.path !== $("#tMotion").value) selectMotion();
+}
+async function selectMotion() {
+  T.m = T.motions.find(m => m.path === $("#tMotion").value) || null;
+  T.data = null; T.inF = T.outF = null; T.imgF = -1;
+  if (!T.m) return drawTrain();
+  T.data = await api(`/api/motions/data?path=${encodeURIComponent(T.m.path)}`);
+  T.byFrame = new Map();
+  for (const tr of T.data.tracks) for (const fr of tr.frames) {
+    if (!T.byFrame.has(fr.f)) T.byFrame.set(fr.f, []);
+    T.byFrame.get(fr.f).push({ id: tr.id, kp: fr.kp2d, movement: fr.movement });
+  }
+  $("#tTrack").innerHTML = T.m.tracks.map(t => `<option value="${t.id}">#${t.id} ${esc(t.label)} (${t.frames} frames)</option>`).join("");
+  const first = Math.min(...T.m.tracks.map(t => t.first)), last = Math.max(...T.m.tracks.map(t => t.last));
+  Object.assign($("#tSlider"), { min: first, max: last, value: first });
+  selectTrack(); seek(first);
+}
+function selectTrack() {
+  T.track = T.m?.tracks.find(t => t.id == $("#tTrack").value) || null;
+  const tl = $("#tTimeline"); tl.innerHTML = "";
+  if (T.track) {
+    const min = +$("#tSlider").min, span = Math.max(1, +$("#tSlider").max - min);
+    tl.innerHTML = `<span style="left:${100 * (T.track.first - min) / span}%;width:${100 * (T.track.last - T.track.first) / span}%"></span>`;
+  }
+  updateRange(); drawTrain();
+}
+function seek(f) {
+  T.f = +f; $("#tSlider").value = T.f;
+  $("#tPos").textContent = `frame ${T.f}` + (T.m ? ` · ${(T.f / (T.m.fps || 25)).toFixed(2)} s` : "");
+  if (T.m?.has_video && !T.loading && T.imgF !== T.f) {
+    T.loading = true; const want = T.f;
+    T.img.onload = () => { T.loading = false; T.imgF = want; drawTrain(); if (T.imgF !== T.f && !T.playing) seek(T.f); };
+    T.img.onerror = () => { T.loading = false; };
+    T.img.src = `/api/motions/frame?path=${encodeURIComponent(T.m.path)}&f=${want}`;
+  }
+  drawTrain(); schedulePredict();
+}
+function drawTrain() {
+  const c = $("#tCanvas"), g = c.getContext("2d");
+  g.fillStyle = "#000"; g.fillRect(0, 0, c.width, c.height);
+  if (!T.data) { g.fillStyle = "#93a0b0"; g.font = "18px system-ui"; g.fillText("Choose a recording", 24, 40); return; }
+  const [W, H] = T.data.image_size; const sc = Math.min(c.width / W, c.height / H), ox = (c.width - W * sc) / 2, oy = (c.height - H * sc) / 2;
+  if (T.m.has_video && T.imgF >= 0 && T.img.complete) { g.globalAlpha = .75; g.drawImage(T.img, ox, oy, W * sc, H * sc); g.globalAlpha = 1; }
+  for (const p of T.byFrame.get(T.f) || []) {
+    const sel = T.track && p.id === T.track.id;
+    g.strokeStyle = sel ? hue(p.id) : "rgba(200,200,200,.45)"; g.lineWidth = sel ? 4 : 2;
+    for (const [a, b] of BONES) {
+      const A = p.kp[a], B = p.kp[b];
+      if (A[2] > .3 && B[2] > .3) { g.beginPath(); g.moveTo(ox + A[0] * sc, oy + A[1] * sc); g.lineTo(ox + B[0] * sc, oy + B[1] * sc); g.stroke(); }
+    }
+    const top = p.kp.filter(k => k[2] > .3).reduce((m, k) => k[1] < m[1] ? k : m, [0, 1e9]);
+    g.fillStyle = sel ? hue(p.id) : "#ccc"; g.font = `${sel ? "bold " : ""}15px system-ui`;
+    g.fillText(`#${p.id}${p.movement ? " " + p.movement : ""}`, ox + top[0] * sc - 20, oy + top[1] * sc - 14);
+  }
+}
+let predictTimer;
+function schedulePredict() {
+  clearTimeout(predictTimer);
+  if (!T.track) return;
+  predictTimer = setTimeout(async () => {
+    const r = await api(`/api/predict?path=${encodeURIComponent(T.m.path)}&track=${T.track.id}&frame=${T.f}`).catch(() => null);
+    $("#tPredict").innerHTML = r && r.label ? `classifier: <b>${esc(r.label)}</b> (${Math.round(r.confidence * 100)}%)` : "";
+  }, T.playing ? 400 : 150);
+}
+function updateRange() {
+  $("#tRange").textContent = `start ${T.inF ?? "—"} · end ${T.outF ?? "—"}` + (T.inF != null && T.outF != null ? ` (${T.outF - T.inF} frames)` : "");
+}
+$("#tMotion").onchange = selectMotion;
+$("#tTrack").onchange = selectTrack;
+$("#tSlider").oninput = e => seek(e.target.value);
+$("#tIn").onclick = () => { T.inF = T.f; if (T.outF != null && T.outF <= T.inF) T.outF = null; updateRange(); };
+$("#tOut").onclick = () => { T.outF = T.f; if (T.inF != null && T.inF >= T.outF) T.inF = null; updateRange(); };
+$("#tPlay").onclick = () => {
+  T.playing = !T.playing; $("#tPlay").textContent = T.playing ? "❚❚ Pause" : "▶ Play";
+  const step = () => {
+    if (!T.playing) return;
+    const next = T.f + 1 > +$("#tSlider").max ? +$("#tSlider").min : T.f + 1;
+    seek(next); setTimeout(step, 1000 / (T.m?.fps || 25));
+  };
+  step();
+};
+document.addEventListener("keydown", e => {
+  if (!$("#train").classList.contains("on") || e.target.tagName === "INPUT") return;
+  if (e.key === "ArrowRight") seek(Math.min(+$("#tSlider").max, T.f + (e.shiftKey ? 10 : 1)));
+  else if (e.key === "ArrowLeft") seek(Math.max(+$("#tSlider").min, T.f - (e.shiftKey ? 10 : 1)));
+  else if (e.key === "[") $("#tIn").click(); else if (e.key === "]") $("#tOut").click();
+  else if (e.key === " ") { e.preventDefault(); $("#tPlay").click(); } else return;
+});
+$("#tAdd").onclick = async () => {
+  if (!T.track || T.inF == null || T.outF == null) return alert("Choose a track and set a start and end first.");
+  try {
+    await api("/api/labels", { method: "POST", body: { motion: T.m.path, track: T.track.id, start: T.inF, end: T.outF, label: $("#tLabel").value } });
+    T.inF = T.outF = null; updateRange(); refreshClips();
+  } catch (e) { alert(e.message); }
+};
+async function refreshClips() {
+  const clips = await api("/api/labels");
+  const counts = {}; clips.forEach(c => counts[c.label] = (counts[c.label] || 0) + 1);
+  $("#tLabels").innerHTML = Object.keys(counts).map(l => `<option value="${esc(l)}">`).join("");
+  $("#tSummary").innerHTML = Object.entries(counts).map(([l, n]) => `<span class="pill">${esc(l)} × ${n}</span>`).join("") || "No clips yet.";
+  $("#tClips").innerHTML = clips.slice().reverse().map(c => `<tr><td><b>${esc(c.label)}</b><br><span class="muted">#${c.track} · frames ${c.start}–${c.end}<br>${esc(c.motion.split(/[\\/]/).pop())}</span></td>
+    <td style="text-align:right"><button class="b" data-go="${c.id}">Show</button> <button class="b" data-rm="${c.id}">✕</button></td></tr>`).join("");
+  $("#tClips").querySelectorAll("[data-rm]").forEach(b => b.onclick = () => api(`/api/labels/${b.dataset.rm}`, { method: "DELETE" }).then(refreshClips));
+  $("#tClips").querySelectorAll("[data-go]").forEach(b => b.onclick = async () => {
+    const c = clips.find(x => x.id === b.dataset.go);
+    if ($("#tMotion").value !== c.motion) { $("#tMotion").value = c.motion; await selectMotion(); }
+    $("#tTrack").value = c.track; selectTrack(); T.inF = c.start; T.outF = c.end; updateRange(); seek(c.start);
+  });
+}
+$("#tTrain").onclick = async () => {
+  const b = $("#tTrain"); b.textContent = "Training…"; b.disabled = true;
+  try {
+    const r = await api("/api/train", { method: "POST" });
+    $("#tSummary").innerHTML += `<div style="margin-top:6px;color:var(--green)">Trained on ${r.clips} clips` +
+      (r.accuracy != null ? ` · held-out accuracy ${Math.round(r.accuracy * 100)}%` : " · add 2+ clips per movement to see accuracy") + `. Live views updated.</div>`;
+    schedulePredict();
+    api("/api/backends").then(b => $("#backend").textContent = `· vision: ${b.selected} (${b.available.join(", ")})${b.classifier ? " · trained classifier" : ""}`);
+  } catch (e) { alert(e.message); }
+  finally { b.textContent = "Train"; b.disabled = false; }
+};
+document.querySelector('[data-tab=train]').addEventListener("click", () => { loadMotions(); refreshClips(); });
 
 // ---- queue ------------------------------------------------------------
 async function refreshJobs() {

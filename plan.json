@@ -231,8 +231,8 @@
       "id": "P5.3",
       "phase": "P5",
       "title": "Labelling UI in the app",
-      "status": "todo",
-      "note": ""
+      "status": "done",
+      "note": "scrub, mark in/out, label, train, live prediction readout"
     },
     {
       "id": "P5.4",

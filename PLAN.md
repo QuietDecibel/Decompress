@@ -2,7 +2,7 @@
 
 Source of truth: [`plan.json`](plan.json). Push it to the Progress Hub with
 `decompress-hub-client sync plan.json`, and regenerate this file with `python scripts/render_plan.py`.
-Overall: **28/43 done (65%)**. Legend: `[x]` done · `[~]` in progress · `[ ]` to do.
+Overall: **29/43 done (67%)**. Legend: `[x]` done · `[~]` in progress · `[ ]` to do.
 
 ## P0 — Foundation & Progress Hub  (4/5)
 
@@ -44,11 +44,11 @@ Overall: **28/43 done (65%)**. Legend: `[x]` done · `[~]` in progress · `[ ]` 
 - [ ] **P4.5** Animal pose estimation (quadruped skeletons)
 - [ ] **P4.6** Re-identify the same person across cameras
 
-## P5 — Training on what it sees  (2/5)
+## P5 — Training on what it sees  (3/5)
 
 - [x] **P5.1** Trainable movement classifier (k-NN on pose features)
 - [x] **P5.2** Train from labelled clips (CLI)
-- [ ] **P5.3** Labelling UI in the app
+- [x] **P5.3** Labelling UI in the app — _scrub, mark in/out, label, train, live prediction readout_
 - [ ] **P5.4** Deep sequence model (temporal CNN / transformer)
 - [ ] **P5.5** Fine-tune detectors on custom footage
 

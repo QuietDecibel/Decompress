@@ -122,15 +122,29 @@ blender --python decompress/blender/import_motion.py -- decompress_data/outputs/
 Options: `--track N` imports one person, `--smooth 5` sets the smoothing window (frames), `--bake` bakes the motion to keyframes.
 Use the MediaPipe backend for true 3D. With 2D-only backends the motion is placed on the camera plane until 2D→3D lifting (P6.4) lands.
 
+## Connecting cameras
+
+In **Discover cameras**, scan your network or enter a camera by hand, type its username and password, and press **Connect**.
+For ONVIF cameras, Decompress asks the camera for its stream address (highest-resolution profile) and finds out whether
+it supports pan/tilt/zoom, so you don't need to know any URL. With **remember** ticked, the camera is saved and comes
+back automatically next time the app starts.
+
+Passwords are kept in Windows Credential Manager (or the macOS Keychain / Linux Secret Service). If no OS store is
+available, they go to an encrypted file in your data folder. They are never written into `cameras.json` or shown in URLs.
+On a tile, **⤢** focuses that view, double-clicking the picture goes fullscreen, and PTZ cameras get an arrow pad
+(hold to move, release to stop).
+
 ## Training your own movements
 
-1. Record motion: click **● Record motion** on a tile, or analyse a file through the queue.
-2. Write `labels.json`:
-   ```json
-   [{"motion": "decompress_data/outputs/ab12-clip.motion.json", "track": 1, "start": 0, "end": 90, "label": "waving"},
-    {"motion": "decompress_data/outputs/ab12-clip.motion.json", "track": 1, "start": 120, "end": 200, "label": "jumping"}]
-   ```
-3. `decompress train labels.json`. New tiles use it automatically, and `POST /api/classifier/reload` updates running tiles.
+1. Get recordings: click **● Record motion** on a live tile, or drop videos into the queue.
+2. Open **Train movements**, pick a recording and a person (track), and scrub with the slider or the arrow keys
+   (Shift+arrow jumps 10 frames, Space plays). Mark the movement with **[ Set start** / **Set end ]** (or the `[` and `]`
+   keys), type a name such as `waving`, and press **Add clip**.
+3. Add clips of at least two movements (two or more clips each gives you an accuracy estimate), then press **Train**.
+   Every live tile starts labelling people with your movements straight away, and the readout under the player
+   shows what the classifier thinks at the current frame.
+
+Clips are stored in `models/labels.json` in your data folder. `decompress train <labels.json>` trains from the command line too.
 
 ## Claude Progress Hub
 
