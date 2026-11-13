@@ -8,8 +8,9 @@ from concurrent.futures import ThreadPoolExecutor
 from .models import Camera
 from .rtsp import rtsp_options
 
-CAMERA_PORTS = [554, 8554, 80, 8000, 8080, 443, 37777, 34567]
+CAMERA_PORTS = [554, 8554, 80, 81, 8000, 8080, 443, 37777, 34567]   # 81: ESP32 camera MJPEG stream
 RTSP_PORTS = {554, 8554}
+HTTP_PORTS = {80, 8080}
 MAX_HOSTS = 1024
 
 
@@ -54,7 +55,21 @@ def _http_server(ip: str, port: int, timeout: float) -> str:
     return next((ln.split(":", 1)[1].strip() for ln in resp.splitlines() if ln.lower().startswith("server:")), "")
 
 
-def probe_host(ip: str, ports=CAMERA_PORTS, timeout: float = 0.4, rtsp_ports=RTSP_PORTS) -> Camera | None:
+def _esp32(ip: str, open_ports: list[int], http_ports, timeout: float):
+    from .esp32cam import Esp32Error, identify
+    for p in open_ports:
+        if p in http_ports:
+            try:
+                info = identify(ip, p, timeout=timeout * 2, quick=True)
+            except Esp32Error:
+                info = None
+            if info and not info.needs_login:
+                return info
+    return None
+
+
+def probe_host(ip: str, ports=CAMERA_PORTS, timeout: float = 0.4, rtsp_ports=RTSP_PORTS,
+               http_ports=HTTP_PORTS) -> Camera | None:
     open_ports = [p for p in ports if _open(ip, p, timeout)]
     if not open_ports:
         return None
@@ -64,8 +79,15 @@ def probe_host(ip: str, ports=CAMERA_PORTS, timeout: float = 0.4, rtsp_ports=RTS
             cam.rtsp, cam.rtsp_server = rtsp_options(ip, p, timeout * 2)
         if p in (80, 8000, 8080) and not cam.http_server:
             cam.http_server = _http_server(ip, p, timeout * 2)
-    # Only report hosts that look like cameras: an RTSP server or a camera-only port.
+    # Only report hosts that look like cameras: an RTSP server, a camera-only port, or a known vendor.
     if cam.rtsp or {37777, 34567} & set(open_ports) or cam.vendor_hint:
+        return cam
+    # ESP32 / ESP32-S3 camera boards have no RTSP and no vendor name: ask their web server.
+    info = _esp32(ip, open_ports, http_ports, timeout)
+    if info:
+        cam.methods.append("esp32")
+        cam.device, cam.stream_url = f"esp32 {info.firmware}", info.stream_url
+        cam.name = cam.name or "ESP32 camera"
         return cam
     return None
 

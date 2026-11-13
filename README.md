@@ -10,6 +10,7 @@ other Claude project can report progress to.
 | Area | What works today |
 |---|---|
 | Discovery | ONVIF WS-Discovery + RTSP/port probe of private subnets only (≤1024 hosts), vendor stream-URL templates. No password guessing: you enter your camera's own credentials. |
+| ESP32 cameras | ESP32, ESP32-S2 and ESP32-S3 camera boards (AI-Thinker, M5Stack, Freenove, Seeed XIAO, DFRobot, ESP-EYE, …) running CameraWebServer, Tasmota webcam, ESPHome or other MJPEG/RTSP firmware: found on the network, settings and presets from the app. |
 | Multi-view | Grid of 1×1 to 4×4 tiles: RTSP, HTTP/MJPEG, webcams, imported files. Each tile shows live skeletons, track IDs, trails and movement labels. Credentials are redacted in the UI/API. |
 | Queue | Drag & drop videos into a persistent queue (reorder, cancel, resume after restart). Each job writes an annotated `.mp4` and a `.motion.json`. |
 | Vision | Backends: **MediaPipe** (2D + metric 3D, multi-person), **YOLO-pose**, **YOLO-det** (people + animals as boxes), **HOG** fallback. A multi-person tracker gives stable IDs. Movement labels: walking / running / crouching / standing / arms raised. |
@@ -134,6 +135,28 @@ Passwords are kept in Windows Credential Manager (or the macOS Keychain / Linux 
 available, they go to an encrypted file in your data folder. They are never written into `cameras.json` or shown in URLs.
 On a tile, **⤢** focuses that view, double-clicking the picture goes fullscreen, and PTZ cameras get an arrow pad
 (hold to move, release to stop).
+
+## ESP32 camera boards
+
+The **ESP32 cameras** tab handles cheap Wi-Fi camera boards built on the ESP32, ESP32-S2 or ESP32-S3. Support comes
+from the firmware, not the board, so any board works if it runs one of these:
+
+| Firmware | Stream | Settings from Decompress |
+|---|---|---|
+| Espressif **CameraWebServer** (Arduino-ESP32 / ESP-IDF example, and board makers' copies) | `http://<ip>:81/stream` | All: resolution, JPEG quality, exposure, gain, white balance, mirror/flip, flash LED |
+| **Tasmota** webcam build | `http://<ip>:81/stream` | Resolution, flip/mirror, image and exposure settings |
+| **ESPHome**, yoursunny/esp32cam and other MJPEG firmware | found automatically | Stream only |
+| Micro-RTSP / esp32cam-rtsp | `rtsp://<ip>:554/mjpeg/1` | Stream only (add by address) |
+
+Press **Find ESP32 cameras** or type the board's address, then **Add camera**. With **tune for pose tracking** ticked,
+Decompress sets 640×480, good JPEG quality and automatic exposure/white balance. Each camera card shows a snapshot,
+the live view's measured frame rate, presets (Pose tracking / Fast / Detail) and every setting the camera reports.
+Changes go straight to the camera; a new resolution reconnects the live view. The tab also lists the supported boards
+with the `board_config.h` choice for CameraWebServer, and the flashing steps. Open it directly at
+http://127.0.0.1:8000/#esp32.
+
+Notes: the stock stream serves one viewer at a time, so close the camera's own page while Decompress shows it. These
+streams are plain HTTP: keep the boards on your own network. A 5 V / 2 A supply avoids most resets.
 
 ## Training your own movements
 

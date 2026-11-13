@@ -16,7 +16,7 @@ from .pipeline import Analyzer
 def open_capture(url: str) -> cv2.VideoCapture:
     if url.isdigit():                      # local webcam index
         return cv2.VideoCapture(int(url))
-    if url.startswith("rtsp://"):
+    if url.startswith(("rtsp://", "http://", "https://")):   # FFmpeg reads RTSP and HTTP/MJPEG (ESP32) streams
         return cv2.VideoCapture(url, cv2.CAP_FFMPEG)
     return cv2.VideoCapture(url)
 
@@ -51,6 +51,7 @@ class Source:
         self._frame: np.ndarray | None = None
         self._frame_t = 0.0
         self._stop = threading.Event()
+        self._reconnect = threading.Event()
         self._cond = threading.Condition()
         self._analyzer: Analyzer | None = None
         self._analyzer_factory = None
@@ -68,9 +69,15 @@ class Source:
         with self._cond:
             self._cond.notify_all()
 
+    def reconnect(self) -> None:
+        """Reopen the stream, e.g. after the camera's resolution was changed."""
+        self._reconnect.set()
+
     def _capture_loop(self) -> None:
         backoff = 1.0
+        live = self.kind != "file"
         while not self._stop.is_set():
+            self._reconnect.clear()
             cap = open_capture(self.url)
             if not cap.isOpened():
                 self.status = f"unreachable, retrying in {backoff:.0f}s"
@@ -78,12 +85,18 @@ class Source:
                 backoff = min(backoff * 2, 30)
                 continue
             backoff = 1.0
-            self.fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+            reported = cap.get(cv2.CAP_PROP_FPS) or 0.0
+            # MJPEG streams (ESP32 cameras) report 0 or a made-up rate; live sources are measured below.
+            self.fps = reported if 0 < reported <= 120 else 25.0
             self.size = (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
             self.status = "live"
             t0 = time.time()
             n = 0
+            win_t, win_n = time.time(), 0
             while not self._stop.is_set():
+                if self._reconnect.is_set():
+                    self.status = "reconnecting"
+                    break
                 ok, frame = cap.read()
                 if not ok:
                     if self.kind == "file":           # loop imported files in the grid
@@ -93,6 +106,15 @@ class Source:
                     self.status = "stream lost, reconnecting"
                     break
                 n += 1
+                h, w = frame.shape[:2]
+                if (w, h) != self.size:
+                    self.size = (w, h)
+                if live:                              # measured frame rate over ~2 s windows
+                    win_n += 1
+                    now = time.time()
+                    if now - win_t >= 2.0:
+                        self.fps = win_n / (now - win_t)
+                        win_t, win_n = now, 0
                 if self.kind == "file":               # pace file playback at native fps
                     delay = t0 + n / self.fps - time.time()
                     if delay > 0:

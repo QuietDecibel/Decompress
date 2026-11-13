@@ -7,6 +7,7 @@ import os
 import shutil
 import threading
 import uuid
+from dataclasses import asdict
 from pathlib import Path
 
 import cv2
@@ -16,7 +17,7 @@ from pydantic import BaseModel
 
 from .. import discovery, progress
 from ..cameras import CameraRegistry, SavedCamera
-from ..discovery import onvif_client
+from ..discovery import esp32cam, onvif_client
 from ..jobs import JobQueue
 from ..pipeline import Analyzer
 from ..sources import Source
@@ -87,6 +88,25 @@ class Ptz(BaseModel):
     stop: bool = False
 
 
+class Esp32Address(BaseModel):
+    address: str                  # 192.168.1.50, 192.168.1.50:8080 or esp32cam.local
+    user: str = ""
+    password: str = ""
+
+
+class NewEsp32(Esp32Address):
+    name: str = ""
+    remember: bool = True
+    autostart: bool = True
+    start: bool = True
+    preset: str = ""              # e.g. "pose": tune the camera when adding it
+
+
+class Esp32Setting(BaseModel):
+    var: str
+    val: int
+
+
 def create_app(backend: str | None = None, hub_project: str | None = None) -> FastAPI:
     app = FastAPI(title="Decompress")
     UPLOADS.mkdir(parents=True, exist_ok=True)
@@ -129,6 +149,8 @@ def create_app(backend: str | None = None, hub_project: str | None = None) -> Fa
             port = next((p for p in c.ports if p in (554, 8554)), 554)
             d["candidate_urls"] = discovery.candidate_urls(c.ip, port, c.vendor_hint, "USER", "PASS")[:4]
             d["onvif_url"] = next((x for x in c.onvif_xaddrs if x.startswith("http") and "[" not in x), "")
+            if c.stream_url:                                  # ESP32 boards: the stream address is already known
+                d["candidate_urls"] = [c.stream_url]
             out.append(d)
         return {"subnet": subnet or discovery.local_subnet(), "cameras": out}
 
@@ -188,14 +210,17 @@ def create_app(backend: str | None = None, hub_project: str | None = None) -> Fa
             raise HTTPException(400, "give a stream url or an onvif_url")
         if "@" in cam.url.split("//", 1)[-1].split("/", 1)[0]:
             raise HTTPException(400, "put the username/password in the user/password fields, not the URL")
-        if body.remember:
-            registry.add(cam, body.user, body.password)
+        return _register(cam, body.user, body.password, body.remember, body.start)
+
+    def _register(cam: SavedCamera, user: str, password: str, remember: bool, start: bool) -> dict:
+        if remember:
+            registry.add(cam, user, password)
         result = {"camera": vars(cam)}
-        if body.start:
-            if body.remember:
+        if start:
+            if remember:
                 result["source"] = _start_camera(cam).info()
             else:
-                s = Source(url=onvif_client.with_credentials(cam.url, body.user, body.password), name=cam.name).start(factory)
+                s = Source(url=onvif_client.with_credentials(cam.url, user, password), name=cam.name).start(factory)
                 sources[s.id] = s
                 result["source"] = s.info()
         return result
@@ -229,6 +254,139 @@ def create_app(backend: str | None = None, hub_project: str | None = None) -> Fa
         except onvif_client.OnvifError as e:
             raise HTTPException(502, str(e))
         return {"ok": True}
+
+    # ---- ESP32 / ESP32-S2 / ESP32-S3 cameras --------------------------------
+    def _esp32_probe(address: str, user: str, password: str) -> esp32cam.Esp32Info:
+        try:
+            host, port = esp32cam.parse_address(address)
+            info = esp32cam.identify(host, port, user, password, timeout=2.5)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        except esp32cam.Esp32Error as e:
+            raise HTTPException(502, str(e))
+        if info is None:
+            raise HTTPException(404, f"{address} answered, but no camera stream was found there")
+        return info
+
+    def _esp32(cid: str) -> SavedCamera:
+        cam = registry.cameras.get(cid)
+        if cam is None or cam.device != "esp32":
+            raise HTTPException(404, "unknown ESP32 camera")
+        return cam
+
+    def _esp32_info(cam: SavedCamera) -> esp32cam.Esp32Info:
+        info = esp32cam.Esp32Info(host=cam.ip, firmware=cam.firmware, base_url=cam.control_url,
+                                  stream_url=cam.url, snapshot_url=cam.snapshot_url)
+        if cam.control_url and cam.firmware in ("camerawebserver", "tasmota"):
+            try:
+                esp32cam.read_settings(info, *registry.credentials(cam.id))
+            except esp32cam.Esp32Error as e:
+                raise HTTPException(502, str(e))
+        return info
+
+    def _views_of(cid: str) -> list[Source]:
+        return [s for s in sources.values() if s.camera_id == cid]
+
+    def _esp32_apply(cam: SavedCamera, steps: list[tuple[str, int]]) -> None:
+        user, password = registry.credentials(cam.id)
+        try:
+            for var, val in steps:
+                esp32cam.set_control(cam.firmware, cam.control_url, var, val, user, password)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        except esp32cam.Esp32Error as e:
+            raise HTTPException(502, str(e))
+        if any(var == "framesize" for var, _ in steps):      # new frame size: reopen the stream cleanly
+            for s in _views_of(cam.id):
+                s.reconnect()
+
+    @app.get("/api/esp32/guide")
+    def esp32_guide():
+        return {"boards": esp32cam.BOARDS, "firmware": esp32cam.FIRMWARE,
+                "presets": {k: {"label": v["label"], "help": v["help"]} for k, v in esp32cam.PRESETS.items()}}
+
+    @app.get("/api/esp32/scan")
+    def esp32_scan(subnet: str | None = None):
+        net = subnet or discovery.local_subnet()
+        try:
+            found = esp32cam.scan_esp32(net)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        saved = {c.ip: c.id for c in registry.cameras.values() if c.device == "esp32"}
+        return {"subnet": net, "cameras": [dict(i.to_dict(), saved=saved.get(i.host, "")) for i in found]}
+
+    @app.post("/api/esp32/probe")
+    def esp32_probe(body: Esp32Address):
+        return _esp32_probe(body.address, body.user, body.password).to_dict()
+
+    @app.get("/api/esp32/cameras")
+    def esp32_cameras():
+        out = []
+        for cam in registry.cameras.values():
+            if cam.device == "esp32":
+                views = _views_of(cam.id)
+                out.append({**asdict(cam), "firmware_label": esp32cam.FIRMWARE_LABELS.get(cam.firmware, cam.firmware),
+                            "source": views[0].info() if views else None})
+        return {"cameras": out}
+
+    @app.post("/api/esp32/cameras")
+    def esp32_add(body: NewEsp32):
+        info = _esp32_probe(body.address, body.user, body.password)
+        if info.needs_login:
+            raise HTTPException(401, "this camera asks for a login: enter its username and password")
+        cam = SavedCamera(name=body.name.strip() or f"ESP32 {info.host}", ip=info.host, url=info.stream_url,
+                          autostart=body.autostart, device="esp32", firmware=info.firmware,
+                          control_url=info.base_url, snapshot_url=info.snapshot_url)
+        applied: list = []
+        if body.preset and info.controls:
+            applied = esp32cam.preset_settings(body.preset, info.framesizes, info.controls)
+            user, password = body.user, body.password
+            try:
+                for var, val in applied:
+                    esp32cam.set_control(info.firmware, info.base_url, var, val, user, password)
+            except (ValueError, esp32cam.Esp32Error) as e:
+                raise HTTPException(502, f"camera found, but tuning it failed: {e}")
+        result = _register(cam, body.user, body.password, body.remember, body.start)
+        result["info"], result["applied"] = info.to_dict(), applied
+        return result
+
+    @app.get("/api/esp32/cameras/{cid}/settings")
+    def esp32_settings(cid: str):
+        return _esp32_info(_esp32(cid)).to_dict()
+
+    @app.post("/api/esp32/cameras/{cid}/settings")
+    def esp32_set(cid: str, body: Esp32Setting):
+        cam = _esp32(cid)
+        _esp32_apply(cam, [(body.var, body.val)])
+        return _esp32_info(cam).to_dict()
+
+    @app.post("/api/esp32/cameras/{cid}/preset/{name}")
+    def esp32_preset(cid: str, name: str):
+        cam = _esp32(cid)
+        info = _esp32_info(cam)
+        if not info.controls:
+            raise HTTPException(400, "this firmware has no settings Decompress can change")
+        try:
+            steps = esp32cam.preset_settings(name, info.framesizes, info.controls)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        _esp32_apply(cam, steps)
+        return {"applied": steps, **_esp32_info(cam).to_dict()}
+
+    @app.get("/api/esp32/cameras/{cid}/snapshot.jpg")
+    def esp32_snapshot(cid: str):
+        cam = _esp32(cid)
+        nocache = {"Cache-Control": "no-store"}
+        if cam.snapshot_url:
+            try:
+                return Response(esp32cam.snapshot(cam.snapshot_url, *registry.credentials(cid)),
+                                media_type="image/jpeg", headers=nocache)
+            except esp32cam.Esp32Error:
+                pass
+        view = next((s for s in _views_of(cid) if s.last_jpeg), None)   # fall back to Decompress's own view
+        if view:
+            return Response(view.last_jpeg, media_type="image/jpeg", headers=nocache)
+        raise HTTPException(503, "no picture from this camera right now")
 
     for saved in list(registry.cameras.values()):         # bring back saved camera views on startup
         if saved.autostart:

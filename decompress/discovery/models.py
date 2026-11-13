@@ -14,11 +14,14 @@ class Camera:
     rtsp_server: str = ""
     http_server: str = ""
     name: str = ""
+    device: str = ""                                    # e.g. "esp32" for ESP32 / ESP32-S3 camera boards
+    stream_url: str = ""                                # known stream address (ESP32 cameras), no credentials
 
     @property
     def vendor_hint(self) -> str:
-        text = " ".join(self.scopes + [self.rtsp_server, self.http_server]).lower()
-        for v in ("hikvision", "dahua", "axis", "reolink", "amcrest", "uniview", "foscam", "tp-link", "wyze", "ubiquiti"):
+        text = " ".join(self.scopes + [self.rtsp_server, self.http_server, self.device]).lower()
+        for v in ("hikvision", "dahua", "axis", "reolink", "amcrest", "uniview", "foscam", "tp-link", "wyze", "ubiquiti",
+                  "esp32"):
             if v in text:
                 return v
         return ""
@@ -32,6 +35,8 @@ class Camera:
         self.rtsp_server = self.rtsp_server or other.rtsp_server
         self.http_server = self.http_server or other.http_server
         self.name = self.name or other.name
+        self.device = self.device or other.device
+        self.stream_url = self.stream_url or other.stream_url
 
     def to_dict(self) -> dict:
         d = asdict(self)

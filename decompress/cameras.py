@@ -127,6 +127,10 @@ class SavedCamera:
     ptz: bool = False
     autostart: bool = True
     has_credentials: bool = False
+    device: str = ""                    # "esp32" for ESP32 / ESP32-S2 / ESP32-S3 camera boards
+    firmware: str = ""                  # ESP32 firmware: camerawebserver | tasmota | mjpeg | rtsp
+    control_url: str = ""               # ESP32 settings server (no credentials)
+    snapshot_url: str = ""              # still-picture URL (no credentials)
     id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
 
 
@@ -139,8 +143,9 @@ class CameraRegistry:
         self.lock = threading.Lock()
         self.cameras: dict[str, SavedCamera] = {}
         if self.file.exists():
+            known = set(SavedCamera.__dataclass_fields__)
             for d in json.loads(self.file.read_text()):
-                self.cameras[d["id"]] = SavedCamera(**d)
+                self.cameras[d["id"]] = SavedCamera(**{k: v for k, v in d.items() if k in known})
 
     def _persist(self) -> None:
         self.file.write_text(json.dumps([asdict(c) for c in self.cameras.values()], indent=1))

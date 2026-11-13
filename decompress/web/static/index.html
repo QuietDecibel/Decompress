@@ -46,6 +46,19 @@
   input[type=range] { width:100%; }
   .pill { display:inline-block; background:var(--line); border-radius:10px; padding:1px 8px; font-size:12px; margin:2px; }
   .predict { font-size:13px; min-height:20px; }
+  .ecams { display:grid; gap:12px; grid-template-columns:repeat(auto-fill, minmax(min(100%, 560px), 1fr)); }
+  .ecard { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px; min-width:0; }
+  .ecard .top { display:grid; grid-template-columns:minmax(0, 220px) minmax(0, 1fr); gap:10px; }
+  @media (max-width:600px) { .ecard .top { grid-template-columns:1fr; } }
+  .ecard img { width:100%; aspect-ratio:4/3; object-fit:contain; background:#000; border-radius:6px; display:block; }
+  .esets { display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:6px 14px; margin-top:8px; font-size:12px; }
+  .esets label { display:flex; flex-direction:column; gap:3px; color:var(--muted); }
+  .esets label.tg { flex-direction:row; align-items:center; gap:6px; color:var(--ink); }
+  .esets output { color:var(--ink); }
+  .ok { color:var(--green); } .bad { color:var(--red); }
+  .note { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin-bottom:12px; }
+  .note ul { margin:6px 0 0; padding-left:18px; }
+  .scroll { overflow-x:auto; }
 </style>
 </head>
 <body>
@@ -54,6 +67,7 @@
   <nav>
     <button data-tab="grid" class="on">Multi-view</button>
     <button data-tab="discover">Discover cameras</button>
+    <button data-tab="esp32">ESP32 cameras</button>
     <button data-tab="queue">Video queue</button>
     <button data-tab="train">Train movements</button>
   </nav>
@@ -97,6 +111,63 @@
 
     <h2>Saved cameras</h2>
     <table><thead><tr><th>Name</th><th>Stream</th><th>PTZ</th><th>Starts with app</th><th></th></tr></thead><tbody id="saved"></tbody></table>
+  </section>
+
+  <section id="esp32" class="tab">
+    <div class="note">
+      <b>ESP32, ESP32-S2 and ESP32-S3 camera boards</b>
+      <span class="muted">— any board, as long as it runs one of the firmwares listed at the bottom of this page. What Decompress does for them:</span>
+      <ul class="muted">
+        <li>Recognises the firmware (Espressif CameraWebServer, Tasmota webcam, ESPHome and other MJPEG firmware, RTSP firmware) and finds the stream by itself.</li>
+        <li>Shows the camera's own settings below: resolution, JPEG quality, exposure, white balance, mirror/flip, flash LED. Changes go straight to the camera.</li>
+        <li>One-click presets that tune the camera for pose tracking. Changing the resolution reconnects the live view cleanly.</li>
+        <li>Measures each live view's real frame rate (MJPEG streams don't report one), so recordings keep correct timing.</li>
+        <li>The <b>Discover cameras</b> scan also recognises ESP32 boards now. Logins, if you set one, are kept in the OS credential store.</li>
+      </ul>
+    </div>
+
+    <h2 style="margin-top:0">Find ESP32 cameras</h2>
+    <div class="row">
+      <input id="eSubnet" placeholder="subnet, e.g. 192.168.1.0/24 (blank = this machine's LAN)" style="width:340px;max-width:100%">
+      <button class="b primary" id="eScan">Find ESP32 cameras</button>
+      <span id="eScanStatus" class="muted"></span>
+    </div>
+    <div class="scroll"><table><thead><tr><th>Address</th><th>Firmware</th><th>Sensor</th><th>Stream</th><th>Add</th></tr></thead><tbody id="eFound">
+      <tr><td colspan="5" class="muted">Press <b>Find ESP32 cameras</b> to look for camera boards on your network.</td></tr></tbody></table></div>
+
+    <h2>Add by address</h2>
+    <div class="row">
+      <input id="eAddr" placeholder="192.168.1.50  ·  192.168.1.50:8080  ·  esp32cam.local" style="flex:1;min-width:220px">
+      <input id="eName" placeholder="name" style="width:140px">
+      <input id="eUser" placeholder="user (if set)" style="width:110px"><input id="ePass" type="password" placeholder="password" style="width:120px">
+    </div>
+    <div class="row">
+      <label><input type="checkbox" id="ePose" checked> tune for pose tracking</label>
+      <label><input type="checkbox" id="eStart" checked> show in Multi-view</label>
+      <button class="b" id="eCheck">Check</button>
+      <button class="b primary" id="eAdd">Add camera</button>
+      <span id="eCheckResult" class="muted"></span>
+    </div>
+
+    <h2>My ESP32 cameras</h2>
+    <div id="eCams" class="ecams"></div>
+
+    <h2>Supported boards</h2>
+    <p class="muted">The last column is the board to pick in CameraWebServer's <code>board_config.h</code>. Boards marked ESP32-S3 are the better choice: faster, more memory, native USB.</p>
+    <div class="scroll"><table><thead><tr><th>Board</th><th>Chip</th><th>Sensor</th><th>CameraWebServer board</th><th>Notes</th></tr></thead><tbody id="eBoards"></tbody></table></div>
+
+    <h2>Supported firmware</h2>
+    <div class="scroll"><table><thead><tr><th>Firmware</th><th>Stream</th><th>Settings from Decompress</th><th>Notes</th></tr></thead><tbody id="eFirmware"></tbody></table></div>
+
+    <h2>Flashing a board with CameraWebServer</h2>
+    <ol class="muted">
+      <li>Install the Arduino IDE, then add <b>esp32 by Espressif Systems</b> in the Boards Manager.</li>
+      <li>Open File → Examples → ESP32 → Camera → <b>CameraWebServer</b>. In <code>board_config.h</code>, enable your board from the table above. Type your Wi-Fi name and password in the sketch.</li>
+      <li>Tools: pick your board (e.g. <i>AI Thinker ESP32-CAM</i> or <i>ESP32S3 Dev Module</i>), set <b>PSRAM</b> to enabled (<i>OPI PSRAM</i> on most S3 camera boards) and Partition Scheme to <i>Huge APP</i>.</li>
+      <li>Upload. The Serial Monitor (115200 baud) prints the camera's address. Enter it above, or press <b>Find ESP32 cameras</b>.</li>
+      <li>Use a solid 5 V / 2 A supply: weak USB power is the most common cause of resets and dropped streams.</li>
+    </ol>
+    <p class="muted">The stock stream serves one viewer at a time, so close the camera's own web page while Decompress is showing it. Its stream is plain HTTP: keep these cameras on your own network.</p>
   </section>
 
   <section id="train" class="tab">
@@ -229,7 +300,8 @@ $("#scan").onclick = async () => {
     const r = await api("/api/discover" + (q ? `?subnet=${encodeURIComponent(q)}` : ""));
     $("#scanStatus").textContent = `${r.cameras.length} device(s) on ${r.subnet}`;
     $("#cams").innerHTML = r.cameras.map((c, i) => `<tr>
-      <td>${esc(c.ip)}</td><td>${esc(c.name || "—")}<br><span class="muted">${esc(c.vendor_hint || c.rtsp_server || c.http_server)}</span></td>
+      <td>${esc(c.ip)}</td><td>${esc(c.name || "—")}<br><span class="muted">${esc(c.vendor_hint || c.rtsp_server || c.http_server)}</span>
+        ${c.methods.includes("esp32") ? `<br><span class="muted">ESP32 board: add it from the <b>ESP32 cameras</b> tab to get its settings.</span>` : ""}</td>
       <td>${c.ports.join(", ")}</td><td>${c.methods.join(", ")}</td>
       <td>${c.onvif_url ? `<span class="muted">ONVIF: stream found automatically</span>` :
             `<select id="u${i}" style="max-width:300px">${c.candidate_urls.map(u => `<option>${esc(u.replace("USER:PASS@", ""))}</option>`).join("")}</select>`}
@@ -269,6 +341,158 @@ async function refreshSaved() {
     api(`/api/cameras/${b.dataset.del}`, { method: "DELETE" }).then(() => { refreshSaved(); refresh(); }));
 }
 refreshSaved();
+
+// ---- ESP32 cameras ----------------------------------------------------
+const E = { guide: null, cards: new Map() };
+async function esp32Guide() {
+  if (E.guide) return;
+  E.guide = await api("/api/esp32/guide");
+  $("#eBoards").innerHTML = E.guide.boards.map(b => `<tr><td>${esc(b.name)}</td><td style="white-space:nowrap">${esc(b.chip)}</td><td>${esc(b.sensor)}</td>
+    <td><code>${esc(b.model)}</code></td><td class="muted">${esc(b.notes)}</td></tr>`).join("");
+  $("#eFirmware").innerHTML = E.guide.firmware.map(f => `<tr><td>${esc(f.name)}</td><td><code>${esc(f.stream)}</code></td>
+    <td>${esc(f.settings)}</td><td class="muted">${esc(f.notes)}</td></tr>`).join("");
+}
+const infoLine = i => `${esc(i.firmware_label)}${i.sensor ? " · " + esc(i.sensor) : ""} · stream <code>${esc(i.stream_url || "—")}</code>` +
+  (i.controls.length ? ` · ${i.controls.length} settings` : " · no remote settings");
+
+async function addEsp32(body, btn) {
+  const label = btn.textContent; btn.textContent = "Adding…"; btn.disabled = true;
+  try {
+    const r = await api("/api/esp32/cameras", { method: "POST", body });
+    refresh(); refreshSaved(); await refreshEsp32();
+    return r;
+  } catch (e) { alert(e.message); return null; }
+  finally { btn.textContent = label; btn.disabled = false; }
+}
+const eForm = () => ({ address: $("#eAddr").value.trim(), name: $("#eName").value.trim(), user: $("#eUser").value,
+  password: $("#ePass").value, preset: $("#ePose").checked ? "pose" : "", start: $("#eStart").checked });
+$("#eCheck").onclick = async () => {
+  const b = eForm(); if (!b.address) return alert("Enter the camera's address first.");
+  $("#eCheckResult").textContent = "checking…";
+  try {
+    const i = await api("/api/esp32/probe", { method: "POST", body: { address: b.address, user: b.user, password: b.password } });
+    $("#eCheckResult").innerHTML = i.needs_login ? `<span class="bad">This camera asks for a login: enter its username and password.</span>`
+      : `<span class="ok">Found:</span> ${infoLine(i)}`;
+  } catch (e) { $("#eCheckResult").innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+};
+$("#eAdd").onclick = async () => {
+  const b = eForm(); if (!b.address) return alert("Enter the camera's address first.");
+  if (await addEsp32(b, $("#eAdd"))) {
+    ["#eAddr", "#eName", "#eUser", "#ePass"].forEach(s => $(s).value = ""); $("#eCheckResult").textContent = "";
+  }
+};
+$("#eScan").onclick = async () => {
+  $("#eScanStatus").textContent = "scanning… (this can take up to a minute)"; $("#eFound").innerHTML = "";
+  try {
+    const q = $("#eSubnet").value.trim();
+    const r = await api("/api/esp32/scan" + (q ? `?subnet=${encodeURIComponent(q)}` : ""));
+    $("#eScanStatus").textContent = `${r.cameras.length} ESP32 camera(s) on ${r.subnet}`;
+    $("#eFound").innerHTML = r.cameras.map((c, i) => `<tr><td>${esc(c.host)}</td><td>${esc(c.firmware_label)}</td><td>${esc(c.sensor || "—")}</td>
+      <td><code>${esc(c.stream_url || "—")}</code></td>
+      <td>${c.saved ? `<span class="muted">already added</span>` : `<input id="en${i}" placeholder="name" style="width:110px">
+        ${c.needs_login ? `<input id="eu${i}" placeholder="user" style="width:80px"> <input id="ep${i}" type="password" placeholder="password" style="width:90px">` : ""}
+        <button class="b primary" data-e="${i}">Add</button>`}</td></tr>`).join("")
+      || `<tr><td colspan="5" class="muted">No ESP32 cameras answered. Check the board is on the same network, or add it by address below.</td></tr>`;
+    $("#eFound").querySelectorAll("[data-e]").forEach(b => b.onclick = async () => {
+      const i = b.dataset.e, c = r.cameras[i];
+      const address = c.base_url ? c.base_url.replace(/^https?:\/\//, "") : c.host;
+      const ok = await addEsp32({ address, name: $(`#en${i}`).value.trim(), user: $(`#eu${i}`)?.value || "", password: $(`#ep${i}`)?.value || "",
+                                  preset: $("#ePose").checked ? "pose" : "", start: $("#eStart").checked }, b);
+      if (ok) b.closest("td").innerHTML = `<span class="ok">added</span>`;
+    });
+  } catch (e) { $("#eScanStatus").textContent = e.message; }
+};
+
+function esp32Card(c) {
+  const el = document.createElement("div"); el.className = "ecard"; el.dataset.id = c.id;
+  const presets = Object.entries(E.guide?.presets || {}).map(([k, p]) => `<button class="b" data-p="${k}" title="${esc(p.help)}">${esc(p.label)}</button>`).join("");
+  el.innerHTML = `<div class="row" style="margin-bottom:8px"><b class="nm" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis"></b><span class="muted fw"></span></div>
+    <div class="top"><div><img alt="Snapshot" src="/api/esp32/cameras/${c.id}/snapshot.jpg?t=${Date.now()}"></div>
+      <div style="min-width:0"><div class="live" style="font-size:12px"></div>
+        <div class="muted" style="font-size:12px;margin:4px 0"><code>${esc(c.url)}</code>${c.has_credentials ? " 🔒" : ""}</div>
+        <div class="row" style="margin:6px 0"><button class="b" data-a="view"></button><button class="b" data-a="snap">↻ Snapshot</button><button class="b" data-a="del">Forget</button></div>
+        <div class="row presets" style="margin:0;display:none"><span class="muted">Presets:</span>${presets}</div>
+        <div class="msg" style="font-size:12px;margin-top:4px"></div></div></div>
+    <div class="esets">Loading settings…</div>`;
+  el.querySelector(".fw").textContent = c.firmware_label;
+  const img = el.querySelector("img");
+  const snap = () => img.src = `/api/esp32/cameras/${c.id}/snapshot.jpg?t=${Date.now()}`;
+  el._snap = snap;
+  el.querySelector("[data-a=snap]").onclick = snap;
+  el.querySelector("[data-a=view]").onclick = async () => {
+    try {
+      if (!el._c.source) await api(`/api/cameras/${c.id}/view`, { method: "POST" });
+      refresh(); document.querySelector('[data-tab=grid]').click();
+    } catch (e) { alert(e.message); }
+  };
+  el.querySelector("[data-a=del]").onclick = () => confirm(`Forget ${el._c.name}${el._c.has_credentials ? " and its saved password" : ""}?`) &&
+    api(`/api/cameras/${c.id}`, { method: "DELETE" }).then(() => { refreshEsp32(); refresh(); refreshSaved(); }).catch(e => alert(e.message));
+  el.querySelectorAll("[data-p]").forEach(b => b.onclick = async () => {
+    const msg = el.querySelector(".msg"); msg.innerHTML = `Applying ${esc(b.textContent)}…`;
+    try {
+      const r = await api(`/api/esp32/cameras/${c.id}/preset/${b.dataset.p}`, { method: "POST" });
+      renderEsp32Settings(el, r);
+      msg.innerHTML = `<span class="ok">✓ ${esc(b.textContent)} applied</span> <span class="muted">(${r.applied.length} settings)</span>`;
+      setTimeout(snap, 1200);
+    } catch (e) { msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+  });
+  return el;
+}
+function renderEsp32Settings(el, info) {
+  const box = el.querySelector(".esets");
+  el.querySelector(".fw").textContent = info.firmware_label + (info.sensor ? " · " + info.sensor : "");
+  el.querySelector(".presets").style.display = info.controls.length ? "" : "none";
+  if (!info.controls.length) {
+    box.innerHTML = `<span class="muted" style="grid-column:1/-1">This firmware has no settings Decompress can change. Change them on the camera itself.</span>`;
+    return;
+  }
+  box.innerHTML = info.controls.map(c => {
+    const v = c.value ?? "";
+    if (c.type === "toggle") return `<label class="tg"><input type="checkbox" data-v="${c.var}" ${+v ? "checked" : ""}> ${esc(c.label)}</label>`;
+    if (c.type === "select") return `<label>${esc(c.label)}<select data-v="${c.var}">${c.options.map(o =>
+      `<option value="${o.value}" ${o.value == v ? "selected" : ""}>${esc(o.label)}</option>`).join("")}</select></label>`;
+    return `<label><span>${esc(c.label)}: <output>${esc(v)}</output></span><input type="range" data-v="${c.var}" min="${c.min}" max="${c.max}" value="${esc(v)}"></label>`;
+  }).join("") + (info.framesizes_from === "assumed"
+    ? `<span class="muted" style="grid-column:1/-1">Resolution names are assumed for this firmware; the live view shows the real size.</span>` : "");
+  box.querySelectorAll("[data-v]").forEach(inp => {
+    if (inp.type === "range") inp.oninput = () => inp.parentElement.querySelector("output").textContent = inp.value;
+    inp.onchange = () => setEsp32(el, inp.dataset.v, inp.type === "checkbox" ? (inp.checked ? 1 : 0) : +inp.value);
+  });
+}
+async function loadEsp32Settings(el) {
+  try { renderEsp32Settings(el, await api(`/api/esp32/cameras/${el.dataset.id}/settings`)); }
+  catch (e) { el.querySelector(".esets").innerHTML = `<span class="bad" style="grid-column:1/-1">Settings unavailable: ${esc(e.message)}</span>`; }
+}
+async function setEsp32(el, v, val) {
+  const msg = el.querySelector(".msg"); msg.textContent = "saving…";
+  try {
+    renderEsp32Settings(el, await api(`/api/esp32/cameras/${el.dataset.id}/settings`, { method: "POST", body: { var: v, val } }));
+    msg.innerHTML = `<span class="ok">✓ saved on the camera</span>`;
+    setTimeout(el._snap, 800);
+  } catch (e) { msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`; loadEsp32Settings(el); }
+}
+async function refreshEsp32() {
+  const r = await api("/api/esp32/cameras");
+  const ids = new Set(r.cameras.map(c => c.id));
+  $("#eCams .empty")?.remove();
+  for (const [id, el] of E.cards) if (!ids.has(id)) { el.remove(); E.cards.delete(id); }
+  for (const c of r.cameras) {
+    let el = E.cards.get(c.id);
+    if (!el) { el = esp32Card(c); el._c = c; E.cards.set(c.id, el); $("#eCams").append(el); loadEsp32Settings(el); }
+    el._c = c;
+    el.querySelector(".nm").textContent = c.name;
+    const s = c.source;
+    el.querySelector(".live").innerHTML = s
+      ? `Live view: ${esc(s.status)} · ${s.size[0]}×${s.size[1]} @ <b>${s.fps}</b> fps (measured)${s.tracks.length ? ` · ${s.tracks.length} tracked` : ""}`
+      : `<span class="muted">Not in Multi-view</span>`;
+    el.querySelector("[data-a=view]").textContent = s ? "Show in Multi-view" : "Start view";
+  }
+  if (!r.cameras.length) $("#eCams").innerHTML = `<div class="empty">No ESP32 cameras yet: find them on your network or add one by address.</div>`;
+}
+document.querySelector('[data-tab=esp32]').addEventListener("click", () => esp32Guide().then(refreshEsp32).catch(e => alert(e.message)));
+document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", () => history.replaceState(null, "", "#" + b.dataset.tab)));
+addEventListener("load", () => document.querySelector(`nav button[data-tab="${location.hash.slice(1)}"]`)?.click());
+setInterval(() => $("#esp32").classList.contains("on") && refreshEsp32().catch(() => {}), 2000);
 
 // ---- train ------------------------------------------------------------
 const T = { motions: [], m: null, data: null, track: null, f: 0, inF: null, outF: null, playing: false, img: new Image(), imgF: -1, loading: false };
